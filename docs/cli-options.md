@@ -545,7 +545,7 @@ Fraction of trace sessions to keep for replay, sampled whole-session to preserve
 
 #### `-f`, `--config` `<str>`
 
-Path to a YAML configuration file. CLI flags override values from the config file.
+Path to a YAML configuration file. CLI flags override values from the config file. A flag that cannot be applied on top of a config file is rejected by name rather than ignored, so a run never silently differs from what was asked for.
 
 ### Fixed Schedule
 
@@ -2109,7 +2109,7 @@ Fraction of trace sessions to keep for replay, sampled whole-session to preserve
 
 #### `-f`, `--config` `<str>`
 
-Path to a YAML configuration file. CLI flags override values from the config file.
+Path to a YAML configuration file. CLI flags override values from the config file. A flag that cannot be applied on top of a config file is rejected by name rather than ignored, so a run never silently differs from what was asked for.
 
 ### Fixed Schedule
 
