@@ -1336,7 +1336,7 @@ AGENTIC_REPLAY only: maximum time in seconds the replay may remain globally idle
 
 #### `--scenario` `<str>`
 
-Lock all benchmark invariants for a named scenario (e.g. 'inferencex-agentx-mvp'). Conflicts with the locked invariants raise ScenarioLockError at startup unless --unsafe-override is also passed. Distinct from the sweep ``scenarios`` strategy (hand-picked named runs).
+Lock all benchmark invariants for a named scenario ('agentx' or 'inferencex-agentx-mvp'). Conflicts with the locked invariants raise ScenarioLockError at startup unless --unsafe-override is also passed. Distinct from the sweep ``scenarios`` strategy (hand-picked named runs).
 
 #### `--unsafe-override`
 
@@ -2971,7 +2971,7 @@ AGENTIC_REPLAY only: maximum time in seconds the replay may remain globally idle
 
 #### `--scenario` `<str>`
 
-Lock all benchmark invariants for a named scenario (e.g. 'inferencex-agentx-mvp'). Conflicts with the locked invariants raise ScenarioLockError at startup unless --unsafe-override is also passed. Distinct from the sweep ``scenarios`` strategy (hand-picked named runs).
+Lock all benchmark invariants for a named scenario ('agentx' or 'inferencex-agentx-mvp'). Conflicts with the locked invariants raise ScenarioLockError at startup unless --unsafe-override is also passed. Distinct from the sweep ``scenarios`` strategy (hand-picked named runs).
 
 #### `--unsafe-override`
 
@@ -4601,7 +4601,7 @@ AGENTIC_REPLAY only: maximum time in seconds the replay may remain globally idle
 
 #### `--scenario` `<str>`
 
-Lock all benchmark invariants for a named scenario (e.g. 'inferencex-agentx-mvp'). Conflicts with the locked invariants raise ScenarioLockError at startup unless --unsafe-override is also passed. Distinct from the sweep ``scenarios`` strategy (hand-picked named runs).
+Lock all benchmark invariants for a named scenario ('agentx' or 'inferencex-agentx-mvp'). Conflicts with the locked invariants raise ScenarioLockError at startup unless --unsafe-override is also passed. Distinct from the sweep ``scenarios`` strategy (hand-picked named runs).
 
 #### `--unsafe-override`
 
@@ -6738,7 +6738,7 @@ AGENTIC_REPLAY only: maximum time in seconds the replay may remain globally idle
 
 #### `--scenario` `<str>`
 
-Lock all benchmark invariants for a named scenario (e.g. 'inferencex-agentx-mvp'). Conflicts with the locked invariants raise ScenarioLockError at startup unless --unsafe-override is also passed. Distinct from the sweep ``scenarios`` strategy (hand-picked named runs).
+Lock all benchmark invariants for a named scenario ('agentx' or 'inferencex-agentx-mvp'). Conflicts with the locked invariants raise ScenarioLockError at startup unless --unsafe-override is also passed. Distinct from the sweep ``scenarios`` strategy (hand-picked named runs).
 
 #### `--unsafe-override`
 
