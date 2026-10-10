@@ -65,6 +65,8 @@ from aiperf_mock_server.scheduler import init_scheduler, shutdown_scheduler
 from aiperf_mock_server.utils import (
     RequestCtx,
     anthropic_stop_reason,
+    attach_spec_decode,
+    build_spec_decode_payload,
     make_ctx,
     simulate_anthropic_cache,
     stream_anthropic_messages,
@@ -339,7 +341,7 @@ def _build_chat_response_data(ctx: RequestCtx) -> dict[str, Any]:
     message: dict[str, Any] = {"role": "assistant", "content": ctx.content}
     if ctx.reasoning_content:
         message["reasoning_content"] = ctx.reasoning_content
-    return {
+    response = {
         "id": ctx.request_id,
         "object": "chat.completion",
         "created": int(time.time()),
@@ -349,6 +351,7 @@ def _build_chat_response_data(ctx: RequestCtx) -> dict[str, Any]:
         ],
         "usage": ctx.usage,
     }
+    return attach_spec_decode(response, build_spec_decode_payload(ctx))
 
 
 @app.post("/v1/chat/completions", response_model=None)
@@ -573,7 +576,7 @@ async def _anthropic_stream_wrapper(
 
 def _build_completion_response_data(ctx: RequestCtx) -> dict[str, Any]:
     """Build non-streaming text completion response data."""
-    return {
+    response = {
         "id": ctx.request_id,
         "object": "text_completion",
         "created": int(time.time()),
@@ -587,6 +590,7 @@ def _build_completion_response_data(ctx: RequestCtx) -> dict[str, Any]:
         ],
         "usage": ctx.usage,
     }
+    return attach_spec_decode(response, build_spec_decode_payload(ctx))
 
 
 @app.post("/v1/completions", response_model=None)
