@@ -27,6 +27,7 @@ from aiperf.common.models import (
     ProfileMetricDurationCoverage,
     TimesliceResult,
 )
+from aiperf.common.scenario.inferencex_agentx_mvp import AGENTX
 from aiperf.common.types import MetricTagT
 from aiperf.metrics.accumulator_models import AccumulatorMetricsSummary
 from aiperf.metrics.accumulator_sweeps import compute_sweep_curves
@@ -677,7 +678,7 @@ class MetricsAccumulator(BaseMetricsProcessor):
             export_ctx,
             include_timeslices=False,
             include_sweeps=(
-                self.run.cfg.scenario != "agentx"
+                self.run.cfg.scenario != AGENTX.name
                 or self.run.cfg.ui_type == UIType.DASHBOARD
             ),
         )
