@@ -15,8 +15,12 @@ import pytest
 from aiperf.common.accumulator_protocols import ExportContext, SummaryContext
 from aiperf.common.enums import CreditPhase
 from aiperf.common.models import MetricResult
+from aiperf.common.models.credit_models import PhaseRecordsStats
+from aiperf.metrics.accumulator_sweeps import compute_sweep_curves
 from aiperf.metrics.types.inter_chunk_latency_metric import InterChunkLatencyMetric
 from aiperf.metrics.types.request_latency_metric import RequestLatencyMetric
+from aiperf.plugin.enums import UIType
+from aiperf.records.records_manager import _render_realtime_block
 from aiperf.records.records_manager_processing import generate_realtime_metrics
 from tests.unit.post_processors.conftest import (
     create_accumulator_with_metrics,
@@ -161,10 +165,18 @@ async def test_generate_realtime_metrics_can_scope_to_phase_index(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("phase_index", [None, 2])
-async def test_live_metrics_skip_timeslices_and_preserve_final_export(
-    _mock_registry_for_accumulator: Mock, benchmark_run, phase_index: int | None
+@pytest.mark.parametrize("scenario", [None, "inferencex-agentx-mvp", "agentx"])
+@pytest.mark.parametrize("ui", [UIType.NONE, UIType.SIMPLE, UIType.DASHBOARD])
+async def test_live_metrics_skip_unused_work_and_preserve_final_export(
+    _mock_registry_for_accumulator: Mock,
+    benchmark_run,
+    phase_index: int | None,
+    scenario: str | None,
+    ui: UIType,
 ) -> None:
     benchmark_run.cfg.artifacts.slice_duration = 1.0
+    benchmark_run.cfg.scenario = scenario
+    benchmark_run.cfg.runtime.ui = ui
     accumulator = create_accumulator_with_metrics(
         benchmark_run, RequestLatencyMetric, InterChunkLatencyMetric
     )
@@ -198,14 +210,46 @@ async def test_live_metrics_skip_timeslices_and_preserve_final_export(
     assert "network_adjusted_request_latency" in before.results
 
     # Failing at the expensive entry point proves it is skipped, not discarded.
-    with patch.object(
-        accumulator,
-        "_compute_timeslices",
-        side_effect=AssertionError("live timeslices"),
-    ) as timeslices:
+    with (
+        patch.object(
+            accumulator,
+            "_compute_timeslices",
+            side_effect=AssertionError("live timeslices"),
+        ) as timeslices,
+        patch(
+            "aiperf.metrics.accumulator.compute_sweep_curves",
+            wraps=compute_sweep_curves,
+        ) as sweeps,
+    ):
         live = await generate_realtime_metrics([accumulator], phase_index=phase_index)
         timeslices.assert_not_called()
-    assert {metric.tag: metric for metric in live} == before.results
+    expected = before.results.copy()
+    if scenario == "agentx" and ui != UIType.DASHBOARD:
+        sweeps.assert_not_called()
+        sweep_tags = {
+            tag
+            for tag in expected
+            if (
+                tag.startswith(("effective_", "active_")) and tag != "effective_latency"
+            )
+            or tag == "tokens_in_flight"
+        }
+        assert len(sweep_tags) == 14
+        expected = {
+            tag: value for tag, value in expected.items() if tag not in sweep_tags
+        }
+    else:
+        sweeps.assert_called_once()
+    assert {metric.tag: metric for metric in live} == expected
+    stats = PhaseRecordsStats(
+        phase=CreditPhase.PROFILING,
+        start_ns=2_000_000_000,
+        records_end_ns=7_000_000_000,
+        success_records=2,
+    )
+    assert _render_realtime_block(live, stats, None) == _render_realtime_block(
+        list(before.results.values()), stats, None
+    )
 
     after = await accumulator.export_results(ctx)
     assert after == before

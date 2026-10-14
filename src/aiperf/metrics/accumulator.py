@@ -51,6 +51,7 @@ from aiperf.metrics.replay_sched_lag_analyzer import inject_replay_sched_lag_met
 from aiperf.metrics.types.replay_sched_lag_metrics import (
     REPLAY_SCHED_DEGRADED_THRESHOLD_MS,
 )
+from aiperf.plugin.enums import UIType
 from aiperf.post_processors.base_metrics_processor import BaseMetricsProcessor
 
 if TYPE_CHECKING:
@@ -672,10 +673,21 @@ class MetricsAccumulator(BaseMetricsProcessor):
                 phase=ctx.phase,
                 phase_index=ctx.phase_index,
             )
-        return self._summarize_for_export_context(export_ctx, include_timeslices=False)
+        return self._summarize_for_export_context(
+            export_ctx,
+            include_timeslices=False,
+            include_sweeps=(
+                self.run.cfg.scenario != "agentx"
+                or self.run.cfg.ui_type == UIType.DASHBOARD
+            ),
+        )
 
     def _summarize_for_export_context(
-        self, ctx: ExportContext | None = None, *, include_timeslices: bool
+        self,
+        ctx: ExportContext | None = None,
+        *,
+        include_timeslices: bool,
+        include_sweeps: bool = True,
     ) -> AccumulatorMetricsSummary:
         mask = self._mask_for_export_context(ctx)
 
@@ -694,14 +706,15 @@ class MetricsAccumulator(BaseMetricsProcessor):
             mask is None or bool(mask.any())
         )
         if has_records:
-            # Compute sweeps once for both overall and timeslice injection.
-            sweeps = compute_sweep_curves(self._column_store, mask=mask)
-            self._inject_sweep_metrics(
-                overall_results,
-                sweeps,
-                window_start_ns=window_start_ns,
-                window_end_ns=window_end_ns,
-            )
+            # AgentX's non-dashboard log block does not consume sweep metrics.
+            if include_sweeps or include_timeslices:
+                sweeps = compute_sweep_curves(self._column_store, mask=mask)
+                self._inject_sweep_metrics(
+                    overall_results,
+                    sweeps,
+                    window_start_ns=window_start_ns,
+                    window_end_ns=window_end_ns,
+                )
             # Network-RTT-adjusted latency: the per-record subtraction is
             # window-independent, so compute the clamped arrays ONCE here and let
             # the overall summary and every timeslice aggregate masked views. No-op
