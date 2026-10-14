@@ -7,6 +7,7 @@ import uuid
 
 import pytest
 
+from aiperf.common.accumulator_protocols import ExportContext
 from aiperf.common.constants import NANOS_PER_MILLIS, NANOS_PER_SECOND
 from aiperf.metrics.accumulator import MetricsAccumulator
 from aiperf.metrics.types.max_response_metric import MaxResponseTimestampMetric
@@ -92,7 +93,7 @@ class TestMetricsAccumulatorTimeslices:
             )
         )
 
-        timeslices = (await accumulator.summarize()).timeslices
+        timeslices = (await accumulator.export_results(ExportContext())).timeslices
 
         assert timeslices is not None
         assert len(timeslices) == 2
@@ -114,7 +115,7 @@ class TestMetricsAccumulatorTimeslices:
                 )
             )
 
-        timeslices = (await accumulator.summarize()).timeslices
+        timeslices = (await accumulator.export_results(ExportContext())).timeslices
 
         assert timeslices is not None
         assert len(timeslices) == 1
@@ -142,7 +143,7 @@ class TestMetricsAccumulatorTimeslices:
                 )
             )
 
-        timeslices = (await accumulator.summarize()).timeslices
+        timeslices = (await accumulator.export_results(ExportContext())).timeslices
 
         assert timeslices is not None
         assert timeslices[0].metric_results[RequestCountMetric.tag].avg == 8
@@ -168,7 +169,7 @@ class TestMetricsAccumulatorTimeslices:
                 )
             )
 
-        timeslices = (await accumulator.summarize()).timeslices
+        timeslices = (await accumulator.export_results(ExportContext())).timeslices
 
         assert timeslices is not None
         assert len(timeslices) == 1
@@ -201,7 +202,7 @@ class TestMetricsAccumulatorTimeslices:
                 )
             )
 
-        timeslices = (await accumulator.summarize()).timeslices
+        timeslices = (await accumulator.export_results(ExportContext())).timeslices
 
         assert timeslices is not None
         assert timeslices[0].metric_results[RequestThroughputMetric.tag].avg == 5.0
@@ -214,7 +215,7 @@ class TestMetricsAccumulatorTimeslices:
         mock_run.cfg.artifacts.slice_duration = 1.0
         accumulator = MetricsAccumulator(mock_run)
 
-        summary = await accumulator.summarize()
+        summary = await accumulator.export_results(ExportContext())
 
         assert summary.timeslices is None
 
@@ -236,7 +237,7 @@ class TestMetricsAccumulatorTimeslices:
                 )
             )
 
-        timeslices = (await accumulator.summarize()).timeslices
+        timeslices = (await accumulator.export_results(ExportContext())).timeslices
 
         assert timeslices is not None
         assert len(timeslices) == 4
@@ -258,7 +259,7 @@ class TestMetricsAccumulatorTimeslices:
             )
         )
 
-        timeslices = (await accumulator.summarize()).timeslices
+        timeslices = (await accumulator.export_results(ExportContext())).timeslices
 
         assert timeslices is not None
         assert timeslices[0].is_complete is False
@@ -306,7 +307,7 @@ class TestMetricsAccumulatorRunScopedDerivedMetrics:
                 )
             )
 
-        summary = await accumulator.summarize()
+        summary = await accumulator.export_results(ExportContext())
 
         assert summary.timeslices is not None
         assert len(summary.timeslices) >= 1
