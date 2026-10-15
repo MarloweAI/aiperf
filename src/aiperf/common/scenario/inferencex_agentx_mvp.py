@@ -65,6 +65,9 @@ AGENTX = INFERENCEX_AGENTX_MVP.model_copy(
             "SERVICE": {"PROFILE_CONFIGURE_TIMEOUT": 1800},
             "UI": {"REALTIME_METRICS_ENABLED": True},
             "HTTP": {"TCP_USER_TIMEOUT": 900000},
+            # 1.0.x keeps the pre-watchdog behavior: one long request at low
+            # concurrency can legitimately run past the 600s default.
+            "RECORD": {"PROGRESS_STALL_TIMEOUT": 0},
         },
     }
 )
