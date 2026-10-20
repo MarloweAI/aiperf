@@ -270,6 +270,7 @@ ACCURACY_FIELDS: frozenset[str] = frozenset(
 SCENARIO_FIELDS: frozenset[str] = frozenset(
     {
         "scenario",
+        "screening",
         "unsafe_override",
     }
 )

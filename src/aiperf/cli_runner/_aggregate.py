@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from aiperf.common.scenario.base import SCREENING_REASON
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -173,7 +175,12 @@ def _stamp_scenario_submission_metadata(
 
     if reresolve_failed:
         submission_valid = False
-        submission_invalid_reasons: list[str] = ["scenario_reresolve_failed"]
+        # The screening stamp comes from the config, so a failed re-check
+        # must not drop it.
+        submission_invalid_reasons: list[str] = (
+            [SCREENING_REASON] if getattr(base_config, "screening", False) else []
+        )
+        submission_invalid_reasons.append("scenario_reresolve_failed")
     elif outcome is None:
         submission_valid = True
         submission_invalid_reasons = []

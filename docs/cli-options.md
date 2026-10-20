@@ -1115,6 +1115,11 @@ Lock all benchmark invariants for a named scenario (e.g. 'inferencex-agentx-mvp'
 Convert scenario lock errors to warnings; stamps submission_valid=false in the aggregate output. No-op without --scenario.
 <br/>_Flag (no value required)_
 
+#### `--screening`
+
+Dev-only screening run of the `--scenario`: profile for less than the scenario's minimum benchmark duration. Every other scenario lock stays enforced. The run is stamped submission_valid=false with the reason `screening` and `screening: true` in the exported metadata, also when the duration meets the minimum. Do not compare a screening run with full runs or publish it. Requires `--scenario`.
+<br/>_Flag (no value required)_
+
 ### Warmup
 
 #### `--warmup-request-count`, `--num-warmup-requests` `<int>`
@@ -2660,6 +2665,11 @@ Lock all benchmark invariants for a named scenario (e.g. 'inferencex-agentx-mvp'
 #### `--unsafe-override`
 
 Convert scenario lock errors to warnings; stamps submission_valid=false in the aggregate output. No-op without --scenario.
+<br/>_Flag (no value required)_
+
+#### `--screening`
+
+Dev-only screening run of the `--scenario`: profile for less than the scenario's minimum benchmark duration. Every other scenario lock stays enforced. The run is stamped submission_valid=false with the reason `screening` and `screening: true` in the exported metadata, also when the duration meets the minimum. Do not compare a screening run with full runs or publish it. Requires `--scenario`.
 <br/>_Flag (no value required)_
 
 ### Warmup

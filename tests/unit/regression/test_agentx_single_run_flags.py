@@ -107,3 +107,28 @@ async def test_failing_boundary_hook_stops_before_profiling(
 
     assert (marker_dir / WARMUP_DONE_MARKER).exists()
     assert not (marker_dir / BOUNDARY_DONE_MARKER).exists()
+
+
+@pytest.mark.asyncio
+async def test_screening_relaxes_only_the_duration_and_leaves_bodies_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_tokenizer,
+    skip_service_registration,
+) -> None:
+    # The golden flags already pass --unsafe-override (the local trace fixture
+    # is not a pinned dataset) and a 60 s duration (below the 900 s floor).
+    plain_run, _, _ = await agentx_requests(tmp_path / "plain", monkeypatch)
+    screening_run, _, entries = await agentx_requests(
+        tmp_path / "screening", monkeypatch, {"screening": True}
+    )
+
+    plain = plain_run.resolved.scenario_outcome
+    screening = screening_run.resolved.scenario_outcome
+    assert "--benchmark-duration" in {v.flag for v in plain.violations}
+    assert screening.violations == [
+        v for v in plain.violations if v.flag != "--benchmark-duration"
+    ]
+    assert plain.submission_invalid_reasons == ["unsafe_override"]
+    assert screening.submission_invalid_reasons == ["screening", "unsafe_override"]
+    assert entries == _golden_entries()

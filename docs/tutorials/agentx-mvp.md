@@ -606,6 +606,42 @@ want to compare against other AgentX MVP runs.
 
 ---
 
+## `--screening`
+
+A screening run is a dev-only short run, for example to check a server build
+before a full run. `--screening` relaxes only the 900 s profiling-duration
+floor. Every other scenario rule stays enforced, so a broken rule still stops
+the run (unless you also pass `--unsafe-override`).
+
+```bash
+aiperf profile \
+    --scenario inferencex-agentx-mvp \
+    --screening \
+    --benchmark-duration 300 \
+    ...
+```
+
+What `--screening` does:
+
+- **Accepts any `--benchmark-duration`.** Without `--benchmark-duration`, the
+  scenario default (1800 s) still applies.
+- **Always stamps the run.** The JSON outputs get `submission_valid: false`,
+  `"screening"` in `submission_invalid_reasons` and `screening: true` in the
+  metadata. This also happens when the duration meets the floor, because you
+  asked for a screening run.
+- **Logs one warning at startup** that starts with `SCREENING RUN`.
+- **Needs `--scenario`.** Without it, the configuration is refused.
+- **With `--unsafe-override`,** other broken rules become warnings, and
+  `submission_invalid_reasons` holds `"screening"` and `"unsafe_override"`.
+
+Do not compare a screening run with full AgentX MVP runs, and do not publish it.
+
+With `--config FILE`, `--screening` also applies, but `--scenario` and
+`--unsafe-override` do not. Set `scenario` and `unsafe_override` under
+`benchmark:` in the file. You can also set `screening: true` there.
+
+---
+
 ## Troubleshooting
 
 **`UnknownScenarioError: Unknown scenario 'inferencex-agentx-mvp'. Valid scenarios: …`**

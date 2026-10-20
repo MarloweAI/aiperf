@@ -414,6 +414,20 @@ class BenchmarkConfig(BaseConfig, BenchmarkHelpersMixin):
         ),
     ]
 
+    screening: Annotated[
+        bool,
+        Field(
+            default=False,
+            description="Mark the run as a dev-only screening run of the "
+            "``scenario``. The scenario's profiling-duration floor is not "
+            "enforced, and every other scenario lock still is. The run is "
+            "stamped submission_valid=false with the reason 'screening' and "
+            "`screening: true` in the exported metadata, also when the "
+            "duration meets the floor. Requires ``scenario``. The "
+            "ScenarioResolver consumes it.",
+        ),
+    ]
+
     warmup_boundary_hook: Annotated[
         WarmupBoundaryHookConfig | None,
         Field(
@@ -507,6 +521,16 @@ class BenchmarkConfig(BaseConfig, BenchmarkHelpersMixin):
                 f"Phase config '{self.phases[0].name}' cannot have seamless=True "
                 "because it is first. Seamless transitions only apply to "
                 "subsequent phase configs."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_screening_requires_scenario(self) -> Self:
+        """A screening run relaxes a scenario lock, so it needs a scenario."""
+        if self.screening and self.scenario is None:
+            raise ValueError(
+                "--screening marks a short run of a --scenario. Pass --scenario "
+                "or drop --screening."
             )
         return self
 

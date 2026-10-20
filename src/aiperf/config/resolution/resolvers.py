@@ -362,8 +362,9 @@ class ScenarioResolver:
 
     def resolve(self, run: BenchmarkRun) -> None:
         from aiperf.common.scenario import apply_scenario
+        from aiperf.common.scenario.validator import announce_screening
 
-        apply_scenario(run)
+        announce_screening(apply_scenario(run))
 
 
 class TimingResolver:
