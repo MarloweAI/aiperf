@@ -4026,6 +4026,12 @@
           "title": "Unsafeoverride",
           "type": "boolean"
         },
+        "screening": {
+          "default": false,
+          "description": "Mark the run as a dev-only screening run of the ``scenario``. The scenario's profiling-duration floor is not enforced, and every other scenario lock still is. The run is stamped submission_valid=false with the reason 'screening' and `screening: true` in the exported metadata, also when the duration meets the floor. Requires ``scenario``. The ScenarioResolver consumes it.",
+          "title": "Screening",
+          "type": "boolean"
+        },
         "warmupBoundaryHook": {
           "anyOf": [
             {

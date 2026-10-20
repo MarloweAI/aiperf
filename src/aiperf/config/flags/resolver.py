@@ -193,6 +193,10 @@ def build_cli_overrides(
 
     if "no_sweep_table" in cli.model_fields_set:
         out["no_sweep_table"] = cli.no_sweep_table
+    if "screening" in cli.model_fields_set:
+        # A dropped --screening would export a short run as a valid
+        # submission. _wrap_under_envelope moves it under ``benchmark:``.
+        out["screening"] = cli.screening
     apply_single_run_fields(out, cli)
 
     # Service-runtime CLI flags (--ui, --log-level, --verbose, ZMQ knobs)

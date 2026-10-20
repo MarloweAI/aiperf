@@ -591,7 +591,7 @@ def _assemble_envelope_dict(cli: CLIConfig) -> dict[str, Any]:
 def _apply_scenario_fields(nested: dict[str, Any], cli: CLIConfig) -> None:
     """Write the scenario-lock fields onto the benchmark body.
 
-    ``scenario`` / ``unsafe_override`` are plain data on ``BenchmarkConfig``
+    ``scenario`` / ``unsafe_override`` / ``screening`` are plain data on ``BenchmarkConfig``
     (the lock is applied later by ``ScenarioResolver``). They are NOT envelope
     keys, so ``_wrap_under_envelope`` moves them under ``benchmark:``. Only
     written when the user explicitly set them, to keep ``model_fields_set``
@@ -602,6 +602,8 @@ def _apply_scenario_fields(nested: dict[str, Any], cli: CLIConfig) -> None:
         nested["scenario"] = cli.scenario
     if "unsafe_override" in set_fields:
         nested["unsafe_override"] = cli.unsafe_override
+    if "screening" in set_fields:
+        nested["screening"] = cli.screening
 
 
 def _apply_parameter_sweep_meta_to_sweep(

@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING, Any
 
 from aiperf.common.aiperf_logger import AIPerfLogger
 from aiperf.common.scenario.base import (
+    SCREENING_REASON,
+    UNSAFE_OVERRIDE_REASON,
     ScenarioLockError,
     ScenarioOutcome,
     ScenarioSpec,
@@ -69,7 +71,10 @@ def apply_scenario(run: BenchmarkRun) -> ScenarioOutcome:
     ``submission_valid=False``). One exception: a synthetic default dataset
     under ``require_loader`` always raises, even with ``unsafe_override``,
     because continuing would silently build unusable 1-turn sessions.
-    The result is stored on ``run.resolved.scenario_outcome`` and also returned.
+    ``run.cfg.screening`` relaxes only the profiling-duration floor and stamps
+    ``submission_valid=False`` with the ``screening`` reason, whatever the
+    duration. The result is stored on ``run.resolved.scenario_outcome`` and
+    also returned.
     """
     scenario_name = getattr(run.cfg, "scenario", None)
     if scenario_name is None:
@@ -80,6 +85,7 @@ def apply_scenario(run: BenchmarkRun) -> ScenarioOutcome:
     spec = get_scenario(scenario_name)
     violations: list[ScenarioViolation] = []
     applied: list[str] = []
+    screening = bool(getattr(run.cfg, "screening", False))
 
     _apply_timing_mode(run, spec, violations, applied)
     _apply_require_streaming(run, spec, violations, applied)
@@ -89,7 +95,7 @@ def apply_scenario(run: BenchmarkRun) -> ScenarioOutcome:
     _apply_forbid_input_truncation(run, spec, violations, applied)
     _apply_require_loader(run, spec, violations, applied)
     _apply_require_cache_bust(run, spec, violations, applied)
-    _apply_duration(run, spec, violations, applied)
+    _apply_duration(run, spec, violations, applied, screening=screening)
     _apply_trajectory_ratios(run, spec, applied)
     _apply_inter_turn_delay_cap(run, spec, violations, applied)
     _apply_trace_idle_gap_cap(run, spec, violations, applied)
@@ -108,27 +114,39 @@ def apply_scenario(run: BenchmarkRun) -> ScenarioOutcome:
     if violations and not unsafe:
         raise ScenarioLockError(violations)
 
-    if violations and unsafe:
-        for v in violations:
-            _logger.warning("Scenario violation (override active): %s", v)
-        outcome = ScenarioOutcome(
-            scenario_name=spec.name,
-            applied_locks=applied,
-            violations=violations,
-            submission_valid=False,
-            submission_invalid_reasons=["unsafe_override"],
-        )
-        run.resolved.scenario_outcome = outcome
-        return outcome
-
+    for v in violations:
+        _logger.warning("Scenario violation (override active): %s", v)
+    reasons = [SCREENING_REASON] if screening else []
+    if violations:
+        reasons.append(UNSAFE_OVERRIDE_REASON)
     outcome = ScenarioOutcome(
         scenario_name=spec.name,
         applied_locks=applied,
-        violations=[],
-        submission_valid=True,
+        violations=violations,
+        submission_valid=not reasons,
+        submission_invalid_reasons=reasons,
     )
     run.resolved.scenario_outcome = outcome
     return outcome
+
+
+def announce_screening(outcome: ScenarioOutcome) -> None:
+    """Log the one startup warning of a screening run. Other runs log nothing.
+
+    ``ScenarioResolver`` calls this once at run start. ``apply_scenario`` does
+    not log it, because the aggregate export calls ``apply_scenario`` again.
+    """
+    if outcome.scenario_name is None:
+        return
+    if SCREENING_REASON not in outcome.submission_invalid_reasons:
+        return
+    _logger.warning(
+        "Scenario %r: SCREENING RUN. The %ss profiling-duration floor is "
+        "relaxed and submission_valid=false. Do not compare this run with "
+        "full runs or publish it.",
+        outcome.scenario_name,
+        get_scenario(outcome.scenario_name).min_benchmark_duration_seconds,
+    )
 
 
 def _non_overridable_violations(
@@ -566,12 +584,15 @@ def _apply_duration(
     spec: ScenarioSpec,
     violations: list[ScenarioViolation],
     applied: list[str],
+    *,
+    screening: bool,
 ) -> None:
     """Auto-fill / enforce the profiling-phase duration floor.
 
     v2 duration lives per-phase (``BasePhaseConfig.duration``); the scenario
     applies its default to every profiling phase whose duration is unset and
-    enforces the floor on each.
+    enforces the floor on each. A screening run (``screening=True``) keeps the
+    auto-fill but does not enforce the floor.
     """
     profiling_phases = run.cfg.get_profiling_phases()
     if spec.default_benchmark_duration_seconds is not None:
@@ -585,6 +606,8 @@ def _apply_duration(
                 )
         applied.append("default_benchmark_duration")
 
+    if screening:
+        return
     for phase in profiling_phases:
         duration = phase.duration or 0.0
         if duration < spec.min_benchmark_duration_seconds:

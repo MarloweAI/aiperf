@@ -11,6 +11,7 @@ import aiofiles
 
 from aiperf.common.environment import Environment
 from aiperf.common.mixins import AIPerfLoggerMixin
+from aiperf.common.scenario.base import SCREENING_REASON
 from aiperf.orchestrator.aggregation.base import AggregateResult
 
 
@@ -43,7 +44,9 @@ def _build_run_metadata_dict(
     runs are not polluted with submission-tracking fields. When
     ``scenario_name`` is set, returns the ``scenario`` name plus a coerced
     ``submission_valid`` bool, and includes ``submission_invalid_reasons``
-    only when that list is non-empty.
+    only when that list is non-empty. A screening run (the ``screening``
+    reason) also gets ``screening: true``, so a reader sees at the top of the
+    metadata that the run must not be compared with full runs.
 
     Args:
         scenario_name: Active scenario identifier, or ``None`` for a
@@ -63,6 +66,8 @@ def _build_run_metadata_dict(
         md["submission_valid"] = bool(submission_valid)
         if submission_invalid_reasons:
             md["submission_invalid_reasons"] = list(submission_invalid_reasons)
+        if SCREENING_REASON in (submission_invalid_reasons or []):
+            md["screening"] = True
     return md
 
 

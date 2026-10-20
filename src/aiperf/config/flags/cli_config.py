@@ -2254,6 +2254,21 @@ class CLIConfig(BaseConfig):
         CLIParameter(name=("--unsafe-override",), group=Groups.SCENARIO),
     ] = False
 
+    screening: Annotated[
+        bool,
+        Field(
+            default=False,
+            description="Dev-only screening run of the `--scenario`: profile for "
+            "less than the scenario's minimum benchmark duration. Every other "
+            "scenario lock stays enforced. The run is stamped "
+            "submission_valid=false with the reason `screening` and "
+            "`screening: true` in the exported metadata, also when the "
+            "duration meets the minimum. Do not compare a screening run with "
+            "full runs or publish it. Requires `--scenario`.",
+        ),
+        CLIParameter(name=("--screening",), group=Groups.SCENARIO),
+    ] = False
+
     ##############################################################################
     # Warmup
     ##############################################################################

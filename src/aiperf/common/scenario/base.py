@@ -168,14 +168,21 @@ class ScenarioViolation(AIPerfBaseModel):
         )
 
 
+SCREENING_REASON = "screening"
+"""``submission_invalid_reasons`` tag of a screening run (``--screening``)."""
+
+UNSAFE_OVERRIDE_REASON = "unsafe_override"
+"""``submission_invalid_reasons`` tag of a run with downgraded violations."""
+
+
 class ScenarioOutcome(AIPerfBaseModel):
     """Result of applying a scenario lock against a resolved ``BenchmarkRun``.
 
     Produced by ``aiperf.common.scenario.apply_scenario`` and stored on
     ``run.resolved.scenario_outcome``. ``submission_valid`` is ``None`` when no
     scenario is set, ``True`` when all invariants are satisfied (after
-    auto-fills), and ``False`` under ``--unsafe-override`` when violations were
-    downgraded to warnings.
+    auto-fills), and ``False`` for a screening run (``--screening``) or under
+    ``--unsafe-override`` when violations were downgraded to warnings.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -198,13 +205,14 @@ class ScenarioOutcome(AIPerfBaseModel):
     )
     submission_valid: bool | None = Field(
         default=None,
-        description="True when the scenario lock is satisfied, False under "
-        "--unsafe-override with violations, None when no scenario is set.",
+        description="True when the scenario lock is satisfied, False for a "
+        "screening run or under --unsafe-override with violations, None when "
+        "no scenario is set.",
     )
     submission_invalid_reasons: list[str] = Field(
         default_factory=list,
         description="Short tags explaining why submission_valid is False "
-        "(e.g. 'unsafe_override').",
+        "(e.g. 'screening', 'unsafe_override').",
     )
 
 
