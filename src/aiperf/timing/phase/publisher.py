@@ -27,6 +27,12 @@ if TYPE_CHECKING:
     from aiperf.timing.config import CreditPhaseConfig
 
 
+_AGENTIC_WARMUP_FAILURE_DETAIL = (
+    "A root AgentX warmup request failed, so profiling was not started. "
+    "Check the preceding request error and inference server logs."
+)
+
+
 class PhasePublisher:
     """Publishes phase lifecycle events to message bus.
 
@@ -120,22 +126,24 @@ class PhasePublisher:
         msg = CreditsCompleteMessage(service_id=self._service_id)
         await self._pub_client.publish(msg)
 
-    async def publish_profile_cancel(self) -> None:
+    async def publish_profile_cancel(
+        self,
+        reason: ProfileCancelReason = ProfileCancelReason.WARMUP_FAILURE,
+        reason_detail: str = _AGENTIC_WARMUP_FAILURE_DETAIL,
+    ) -> None:
         """Broadcast ProfileCancelCommand to abort the run.
 
-        Used by the agentic-replay WARMUP early-abort path: a terminal warmup
-        failure means PROFILING must not start, so we broadcast the same command
-        the profiling teardown abort uses. The timing manager cancels credit
-        issuance, the records manager finalizes, and the system controller shuts
-        down -- instead of warmup running to teardown and hanging the run.
-        Reuses the existing PROFILE_CANCEL handlers across services.
+        Used by the agentic-replay WARMUP early-abort path (the defaults) and by
+        a failed warmup boundary hook: PROFILING must not start, so we broadcast
+        the same command the profiling teardown abort uses. The timing manager
+        cancels credit issuance, the records manager finalizes, and the system
+        controller shuts down -- instead of warmup running to teardown and
+        hanging the run. Reuses the existing PROFILE_CANCEL handlers across
+        services.
         """
         msg = ProfileCancelCommand(
             service_id=self._service_id,
-            reason=ProfileCancelReason.WARMUP_FAILURE,
-            reason_detail=(
-                "A root AgentX warmup request failed, so profiling was not started. "
-                "Check the preceding request error and inference server logs."
-            ),
+            reason=reason,
+            reason_detail=reason_detail,
         )
         await self._pub_client.publish(msg)

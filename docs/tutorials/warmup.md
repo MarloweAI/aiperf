@@ -275,6 +275,43 @@ By default, AIPerf waits indefinitely for all warmup responses before starting p
 
 This prevents slow warmup responses from delaying the profiling phase indefinitely.
 
+## Warmup Boundary Hook
+
+Use `--warmup-boundary-hook SCRIPT` with `--warmup-boundary-dir DIR` to run a
+bash script between the warmup phase and the profiling phase. For example, the
+script can record server counters or save the server's cache.
+
+```bash
+--warmup-request-count 100 \
+--warmup-boundary-hook /opt/hooks/boundary.sh \
+--warmup-boundary-dir /tmp/boundary
+```
+
+The timing manager runs these steps when the warmup phase completes:
+
+1. It writes `DIR/warmup.done`.
+2. It runs `bash SCRIPT` and waits for it. The profiling phase does not start
+   until the script exits.
+3. A non-zero exit status stops the run. Profiling does not start,
+   `DIR/boundary.done` does not exist and aiperf exits with a non-zero status.
+4. On exit status 0, it writes `DIR/boundary.done` and the profiling phase
+   starts.
+
+Each marker file holds `time.time_ns()` and a newline. Before the warmup
+phase starts, aiperf checks that `DIR` exists and removes the `warmup.done` and
+`boundary.done` files of an earlier run. If the warmup phase is cancelled, the
+script does not run and profiling does not start. If the run is cancelled while
+the script runs, aiperf kills the script's process group.
+
+Rules:
+
+- The two flags go together. One flag without the other is an error.
+- The run needs exactly one warmup phase, and a profiling phase must follow it.
+  An agentic replay scenario makes its own warmup phase.
+- The profiling phase after the warmup cannot be seamless, because a seamless
+  phase does not wait for the warmup requests.
+- A parameter sweep or `--num-profile-runs` > 1 cannot use the hook.
+
 ## Multi-Turn Warmup
 
 For multi-turn benchmarks, warmup by session count ensures complete conversations:
@@ -401,6 +438,8 @@ aiperf profile \
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--warmup-grace-period` | float | ∞ | Max seconds to wait for warmup responses after stop condition. Requires `--warmup-duration`. |
+| `--warmup-boundary-hook` | path | - | Bash script to run after warmup and before profiling. Requires `--warmup-boundary-dir`. See [Warmup Boundary Hook](#warmup-boundary-hook). |
+| `--warmup-boundary-dir` | path | - | Existing directory for `warmup.done` and `boundary.done`. Requires `--warmup-boundary-hook`. |
 
 ## Troubleshooting
 

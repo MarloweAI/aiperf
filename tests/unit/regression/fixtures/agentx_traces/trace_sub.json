@@ -1,0 +1,174 @@
+{
+ "id": "trace_sub",
+ "models": [
+  "claude-opus-4-5-20251101",
+  "claude-haiku-4-5-20251001"
+ ],
+ "block_size": 16,
+ "hash_id_scope": "local",
+ "requests": [
+  {
+   "t": 0.0,
+   "type": "n",
+   "model": "claude-opus-4-5-20251101",
+   "in": 24,
+   "out": 8,
+   "hash_ids": [
+    1
+   ],
+   "input_types": [
+    "text"
+   ],
+   "output_types": [
+    "text"
+   ],
+   "stop": "tool_use",
+   "api_time": 0.05,
+   "think_time": 0.0
+  },
+  {
+   "t": 0.2,
+   "type": "n",
+   "model": "claude-opus-4-5-20251101",
+   "in": 40,
+   "out": 8,
+   "hash_ids": [
+    1,
+    2
+   ],
+   "input_types": [
+    "text"
+   ],
+   "output_types": [
+    "text"
+   ],
+   "stop": "tool_use",
+   "api_time": 0.05,
+   "think_time": 0.05
+  },
+  {
+   "t": 0.4,
+   "type": "subagent",
+   "agent_id": "agent_001",
+   "subagent_type": "Explore",
+   "duration_ms": 300,
+   "total_tokens": 200,
+   "tool_use_count": 1,
+   "status": "completed",
+   "requests": [
+    {
+     "t": 0.0,
+     "type": "n",
+     "model": "claude-haiku-4-5-20251001",
+     "in": 40,
+     "out": 8,
+     "hash_ids": [
+      100,
+      101
+     ],
+     "input_types": [
+      "text"
+     ],
+     "output_types": [
+      "text"
+     ],
+     "stop": "end_turn",
+     "api_time": 0.05,
+     "think_time": 0.0
+    },
+    {
+     "t": 0.2,
+     "type": "n",
+     "model": "claude-haiku-4-5-20251001",
+     "in": 56,
+     "out": 8,
+     "hash_ids": [
+      100,
+      101,
+      102
+     ],
+     "input_types": [
+      "text"
+     ],
+     "output_types": [
+      "text"
+     ],
+     "stop": "end_turn",
+     "api_time": 0.05,
+     "think_time": 0.05
+    }
+   ],
+   "models": [
+    "claude-haiku-4-5-20251001"
+   ],
+   "tool_tokens": 20,
+   "system_tokens": 10
+  },
+  {
+   "t": 0.8,
+   "type": "n",
+   "model": "claude-opus-4-5-20251101",
+   "in": 56,
+   "out": 8,
+   "hash_ids": [
+    1,
+    2,
+    3
+   ],
+   "input_types": [
+    "tool_result"
+   ],
+   "output_types": [
+    "text"
+   ],
+   "stop": "end_turn",
+   "api_time": 0.05,
+   "think_time": 0.0
+  },
+  {
+   "t": 1.0,
+   "type": "n",
+   "model": "claude-opus-4-5-20251101",
+   "in": 72,
+   "out": 8,
+   "hash_ids": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "input_types": [
+    "text"
+   ],
+   "output_types": [
+    "text"
+   ],
+   "stop": "end_turn",
+   "api_time": 0.05,
+   "think_time": 0.05
+  },
+  {
+   "t": 1.2,
+   "type": "n",
+   "model": "claude-opus-4-5-20251101",
+   "in": 88,
+   "out": 8,
+   "hash_ids": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "input_types": [
+    "text"
+   ],
+   "output_types": [
+    "text"
+   ],
+   "stop": "end_turn",
+   "api_time": 0.05,
+   "think_time": 0.0
+  }
+ ]
+}

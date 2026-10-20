@@ -1,0 +1,166 @@
+{
+  "base_commit": "49634d1c6c2e6dcc18979d704a65e7c7064efc49",
+  "requests": [
+    {
+      "phase": "warmup",
+      "conversation_id": "trace_n4",
+      "turn_index": 0,
+      "sha256": "dd42f4c592ce2262d7940711705000cc19e24e1575453cd18b2e1b6324a67003",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:43aecbc58987]\\n\\nxxxxxxxxxxxxxxxxxxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":1,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "warmup",
+      "conversation_id": "trace_n4",
+      "turn_index": 1,
+      "sha256": "c87f832b0d0ba0e61d976f6282fb90f29b094a45d082f94b675c323d375eea39",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:43aecbc58987]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":1,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "warmup",
+      "conversation_id": "trace_n4",
+      "turn_index": 2,
+      "sha256": "fffbd66f435212c76505d4eb5c27977660ae0ae744427b9a9524d3da882d194c",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:43aecbc58987]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":1,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_n4",
+      "turn_index": 3,
+      "sha256": "5428df5010048f75340fc145d5691cd06857a1e2a1a751e846a781334fdfb51c",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:43aecbc58987]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_n5",
+      "turn_index": 0,
+      "sha256": "0943cd7be800d136307c55e7d161047df292cafb180828a084f62ed8171caf6a",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:b08748d97b47]\\n\\nxxxxxxxxxxxxxxxxxxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_n5",
+      "turn_index": 1,
+      "sha256": "bd379758ae3c7710fc166dd80c7465ce13f74a9e3fbcf240a5b5119f41fd5fe5",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:b08748d97b47]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_n5",
+      "turn_index": 2,
+      "sha256": "ef795033a48512a2a88171546635ecfea6599c413832f776135f92f7e995c2cd",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:b08748d97b47]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_n5",
+      "turn_index": 3,
+      "sha256": "67401544ae60271f134d2da6161cf2fcfaebd33c743ccbe1312630ba4c49117b",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:b08748d97b47]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_n5",
+      "turn_index": 4,
+      "sha256": "57e45b83cec4c1a07a9262f2c3b7e1f3bed97264910353a8a80104b5bcedeeb6",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:b08748d97b47]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_n6",
+      "turn_index": 0,
+      "sha256": "4bf22661cf4c40376289bf8c16589b418459a70d622a581f683d95a798e39548",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:35b8e4cd4dee]\\n\\nxxxxxxxxxxxxxxxxxxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_n6",
+      "turn_index": 1,
+      "sha256": "8b6c802b140308325b67dc9594c2a458b7063916ebb1ab64eb64b224f10af285",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:35b8e4cd4dee]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_n6",
+      "turn_index": 2,
+      "sha256": "cceb9d1175d610e296b4b4b09a12b7cb5b5aba81ae91843e05dc4414022285db",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:35b8e4cd4dee]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_n6",
+      "turn_index": 3,
+      "sha256": "440e2ac7e7eb8522649934f3d1842fe82ea1e3e56ade6ff0ff1b64eeee529ed2",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:35b8e4cd4dee]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_n6",
+      "turn_index": 4,
+      "sha256": "62480899162fcb4d89df1cd37950587c1dabfc2717c31710cf86851ff0e9f258",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:35b8e4cd4dee]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_n6",
+      "turn_index": 5,
+      "sha256": "091fe48e390f92c5c4e9ef6fbfd4893b3cab9f1e4f35ed344fb6ebd8065df66b",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:35b8e4cd4dee]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_sub",
+      "turn_index": 0,
+      "sha256": "0281840d79800c3c4841383e57b35f23c472ed263fd7df4a3f8c6d2c790950e0",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:aeb45cacb1b0]\\n\\nxxxxxxxxxxxxxxxxxxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_sub",
+      "turn_index": 1,
+      "sha256": "71831f2b2ed2115958d4e0d2fbcaf020d0d6d21561a8a7a83f2621d336a555c5",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:aeb45cacb1b0]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_sub::sa:agent_001",
+      "turn_index": 0,
+      "sha256": "86cfa368c451bf3c30dad8267fabdb2a66d83a6bf5a796cd0793af34ccd5f205",
+      "body": "{\"messages\":[{\"role\":\"system\",\"content\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"[rid:aeb45cacb1b0]\\n\\nxxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_sub::sa:agent_001",
+      "turn_index": 1,
+      "sha256": "1a7cae6510bef48a668cd9e60a726913db9c61843e40ca92f4a65723f53d7d32",
+      "body": "{\"messages\":[{\"role\":\"system\",\"content\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"[rid:aeb45cacb1b0]\\n\\nxxxxxxxxxxxxxxxxxxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_sub",
+      "turn_index": 2,
+      "sha256": "5e25952bf09892c43f73b738517af7d34e2d37a882e5796b342b493caea74edd",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:aeb45cacb1b0]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_sub",
+      "turn_index": 3,
+      "sha256": "2a40f041500b70b5c584f1f8af1e1d3e9d1f598ccf19baa929680ae50fb26389",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:aeb45cacb1b0]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_sub",
+      "turn_index": 4,
+      "sha256": "ca1566e0da435dafdfd30affb9c9c0e0251bf6aa86b9f5c333d2f7384b48cac9",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:aeb45cacb1b0]\\n\\nxxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"assistant\",\"content\":\"xxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    },
+    {
+      "phase": "profiling",
+      "conversation_id": "trace_n4",
+      "turn_index": 0,
+      "sha256": "dd56b0bce1d3a7c0a72f9ed5964a21876d1e6742c4d55fe957e53da0a86c7679",
+      "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"[rid:16bf184048ad]\\n\\nxxxxxxxxxxxxxxxxxxxxxxxx\"}],\"model\":\"claude-opus-4-5-20251101\",\"stream\":true,\"max_completion_tokens\":8,\"ignore_eos\":true}"
+    }
+  ]
+}

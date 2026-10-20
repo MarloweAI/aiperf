@@ -695,6 +695,23 @@ class CLIConfig(BaseConfig):
         ),
     ] = None
 
+    benchmark_id: Annotated[
+        str | None,
+        Field(
+            description="Fixed benchmark id for this run, instead of a random one. "
+            "aiperf digests each agentic replay conversation's cache-bust marker "
+            "from the benchmark id, so two runs with the same id send the same "
+            "prompts. Only the run's id changes: request and correlation ids stay "
+            "random. 1-64 characters from `A-Z`, `a-z`, `0-9`, `_` and `-`. Not "
+            "allowed with a parameter sweep or `--num-profile-runs` > 1. Two runs "
+            "at the same time on one host must not share an id.",
+        ),
+        CLIParameter(
+            name=("--benchmark-id",),
+            group=Groups.INPUT,
+        ),
+    ] = None
+
     trace_session_sample_ratio: Annotated[
         float | None,
         Field(
@@ -2394,6 +2411,35 @@ class CLIConfig(BaseConfig):
         ),
         CLIParameter(
             name=("--warmup-grace-period",),
+            group=Groups.WARMUP,
+        ),
+    ] = None
+
+    warmup_boundary_hook: Annotated[
+        Path | None,
+        Field(
+            description="Bash script that runs after the warmup phase completes "
+            "and before the profiling phase starts. The profiling phase waits for "
+            "it. A non-zero exit status stops the run before profiling. Requires "
+            "`--warmup-boundary-dir` and a warmup phase. Not allowed with a "
+            "parameter sweep or `--num-profile-runs` > 1.",
+        ),
+        CLIParameter(
+            name=("--warmup-boundary-hook",),
+            group=Groups.WARMUP,
+        ),
+    ] = None
+
+    warmup_boundary_dir: Annotated[
+        Path | None,
+        Field(
+            description="Existing directory for the warmup boundary hook's marker "
+            "files: `warmup.done` when the warmup phase returns and "
+            "`boundary.done` when the hook exits with status 0. Each file holds "
+            "`time.time_ns()` and a newline. Requires `--warmup-boundary-hook`.",
+        ),
+        CLIParameter(
+            name=("--warmup-boundary-dir",),
             group=Groups.WARMUP,
         ),
     ] = None

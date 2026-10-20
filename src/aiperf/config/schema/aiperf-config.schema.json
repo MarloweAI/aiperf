@@ -4026,6 +4026,18 @@
           "title": "Unsafeoverride",
           "type": "boolean"
         },
+        "warmupBoundaryHook": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WarmupBoundaryHookConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bash script that runs after the warmup phase and before the profiling phase, with the directory for its marker files. The profiling phase waits for the script, and a non-zero exit status stops the run. Needs exactly one warmup phase (an agentic replay scenario makes its own) that a profiling phase follows without seamless. None (the default) runs no hook."
+        },
         "model": {
           "description": "Shorthand for 'models'. Accepts a single value which will be converted to a list/dict. Model configuration. Accepts a single model name string, a list of model names, or an advanced configuration with strategy and weighted items. All forms are normalized to ModelsAdvanced.",
           "oneOf": [
@@ -21999,6 +22011,30 @@
       "title": "WandbConfig",
       "type": "object"
     },
+    "WarmupBoundaryHookConfig": {
+      "additionalProperties": false,
+      "description": "A bash script that runs after the warmup phase and before profiling.\n\nBefore the warmup phase, aiperf removes old markers from ``marker_dir``.\nIt writes ``<marker_dir>/warmup.done`` when the warmup phase returns,\nruns ``bash <script>`` and waits for it. A non-zero exit status stops the\nrun, so profiling never starts. On exit status 0, aiperf writes\n``<marker_dir>/boundary.done`` and the profiling phase starts. Each marker\nholds ``time.time_ns()`` and a newline.",
+      "properties": {
+        "script": {
+          "description": "Bash script that aiperf runs with `bash <script>` after the warmup phase completes and before the profiling phase starts. The profiling phase waits for the script. A non-zero exit status stops the run before profiling.",
+          "format": "path",
+          "title": "Script",
+          "type": "string"
+        },
+        "markerDir": {
+          "description": "Existing directory for the marker files. Before the warmup phase, aiperf removes old markers there. It writes `warmup.done` when the warmup phase returns and `boundary.done` when the script exits with status 0. Each file holds `time.time_ns()` and a newline.",
+          "format": "path",
+          "title": "Markerdir",
+          "type": "string"
+        }
+      },
+      "required": [
+        "script",
+        "markerDir"
+      ],
+      "title": "WarmupBoundaryHookConfig",
+      "type": "object"
+    },
     "ZipSweep": {
       "additionalProperties": false,
       "description": "Zip sweep — parameters paired element-wise (lockstep).\n\nLike ``GridSweep`` but uses ``zip(strict=True)`` instead of Cartesian\nproduct. All parameter lists must have identical length. Use when you\nwant N runs each setting a coordinated tuple of fields, without the\nNxM blow-up of grid. Canonical use case: paired ISL/OSL.",
@@ -23321,6 +23357,20 @@
       "description": "User-defined values exposed to Jinja2 in `{{ ... }}` expressions during config load. Cross-variation: scenario `runs[i].variables:` deep-merge over this base. Preserved on the resolved config so run-time renderers can resolve them again.",
       "title": "Variables",
       "type": "object"
+    },
+    "benchmarkId": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Fixed benchmark id for a single run. aiperf digests the agentic replay cache-bust markers from the benchmark id, so two runs with the same id send the same prompts. Only the run's own id changes: request and correlation ids stay random. 1-64 characters from A-Z, a-z, 0-9, '_' and '-'. Not allowed with a sweep or with more than one profile run, because each of those runs gets its own id. Two runs at the same time on one host must not share an id, because aiperf names its memory-map directory after it. None (the default) makes a random id.",
+      "title": "Benchmarkid"
     },
     "randomSeed": {
       "anyOf": [

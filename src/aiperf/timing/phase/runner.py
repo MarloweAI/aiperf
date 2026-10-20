@@ -338,6 +338,11 @@ class PhaseRunner(TaskManagerMixin):
         """Phase enum (WARMUP or PROFILING)."""
         return self._config.phase
 
+    @property
+    def was_cancelled(self) -> bool:
+        """True after ``cancel()``. A cancelled phase's ``run()`` still returns."""
+        return self._was_cancelled
+
     @staticmethod
     def _is_dag_dataset(dataset_metadata: DatasetMetadata | None) -> bool:
         """True iff the dataset declares any DAG fan-out.

@@ -60,6 +60,7 @@ INPUT_FIELDS: frozenset[str] = frozenset(
         "max_context_length",
         "public_dataset",
         "random_seed",
+        "benchmark_id",
         "use_think_time_only",
         # ----- conversation modality -----
         "conversation_num",
@@ -179,6 +180,8 @@ LOADGEN_FIELDS: frozenset[str] = frozenset(
         "trajectory_start_min_ratio",
         "user_centric_rate",
         "warmup_arrival_pattern",
+        "warmup_boundary_dir",
+        "warmup_boundary_hook",
         "warmup_concurrency",
         "warmup_concurrency_ramp_duration",
         "warmup_duration",

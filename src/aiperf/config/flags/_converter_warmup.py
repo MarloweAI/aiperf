@@ -106,6 +106,24 @@ def _warmup_ramps(w: dict[str, Any], cli: CLIConfig, s: set[str]) -> None:
         w["rate_ramp"] = {"duration": rr}
 
 
+def build_warmup_boundary_hook(cli: CLIConfig) -> dict[str, Any] | None:
+    """Build the ``warmup_boundary_hook`` body section, or return None.
+
+    ``--warmup-boundary-hook`` and ``--warmup-boundary-dir`` are two halves of
+    one setting, so one flag without the other is an error.
+    """
+    script = cli.warmup_boundary_hook
+    marker_dir = cli.warmup_boundary_dir
+    if script is None and marker_dir is None:
+        return None
+    if script is None or marker_dir is None:
+        raise ValueError(
+            "--warmup-boundary-hook and --warmup-boundary-dir go together. "
+            "Pass both flags or neither."
+        )
+    return {"script": script, "marker_dir": marker_dir}
+
+
 def build_warmup(cli: CLIConfig) -> dict[str, Any] | None:
     """Build a warmup phase dict from CLIConfig, or return None.
 
