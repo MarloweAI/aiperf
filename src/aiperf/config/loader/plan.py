@@ -110,6 +110,7 @@ def _assemble_plan_from_aiperf_config(
         cooldown_seconds=config.multi_run.cooldown_seconds,
         confidence_level=config.multi_run.confidence_level,
         random_seed=config.random_seed,
+        benchmark_id=config.benchmark_id,
         set_consistent_seed=config.multi_run.set_consistent_seed,
         disable_warmup_after_first=config.multi_run.disable_warmup_after_first,
         no_sweep_table=config.no_sweep_table,

@@ -14,6 +14,7 @@ from aiperf.common.types import PhaseKind
 from aiperf.config.dataset.defaults import InputDefaults
 from aiperf.config.rate_series import RateSeriesConfig
 from aiperf.config.sweep.adaptive import SLAFilter
+from aiperf.config.warmup_boundary import WarmupBoundaryHookConfig
 from aiperf.plugin.enums import (
     ArrivalPattern,
     PhaseType,
@@ -145,6 +146,33 @@ class TimingConfig(AIPerfBaseModel):
         "target. An active cache-bust marker keeps repeated-trace traffic "
         "distinct, so it satisfies the dataset-wrap opt-in on its own.",
     )
+    warmup_boundary_hook: WarmupBoundaryHookConfig | None = Field(
+        default=None,
+        description="Hook that PhaseOrchestrator runs after the warmup phase "
+        "returns and before the next phase starts. None runs no hook.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_warmup_boundary_hook(self) -> Self:
+        """The hook needs exactly one warmup phase that drains before the next.
+
+        A seamless warmup returns before its requests do, so it has no
+        boundary to hook. Both warmup builders set ``seamless=False`` today.
+        This check keeps that guarantee if a builder changes.
+        """
+        if self.warmup_boundary_hook is None:
+            return self
+        warmups = [p for p in self.phase_configs if p.phase == CreditPhase.WARMUP]
+        if len(warmups) != 1:
+            raise ValueError(
+                "warmup_boundary_hook needs exactly one warmup phase. "
+                f"The run has {len(warmups)}."
+            )
+        if warmups[0].seamless:
+            raise ValueError(
+                "warmup_boundary_hook cannot run after a seamless warmup phase."
+            )
+        return self
 
     @classmethod
     def from_run(cls, run: BenchmarkRun) -> TimingConfig:
@@ -217,6 +245,7 @@ class TimingConfig(AIPerfBaseModel):
             trajectory_start_max_ratio=trajectory_max,
             allow_dataset_wrap=allow_dataset_wrap,
             cache_bust_enabled=cache_bust_enabled,
+            warmup_boundary_hook=cfg.warmup_boundary_hook,
         )
 
 

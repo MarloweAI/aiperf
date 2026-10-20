@@ -175,6 +175,7 @@ def build_cli_overrides(
     )
     from aiperf.config.flags._converter_runtime import build_logging_runtime
     from aiperf.config.flags._converter_telemetry import build_wandb
+    from aiperf.config.flags.converter import apply_single_run_fields
 
     out: dict[str, Any] = {}
     _apply_endpoint_overrides(out, cli)
@@ -192,6 +193,7 @@ def build_cli_overrides(
 
     if "no_sweep_table" in cli.model_fields_set:
         out["no_sweep_table"] = cli.no_sweep_table
+    apply_single_run_fields(out, cli)
 
     # Service-runtime CLI flags (--ui, --log-level, --verbose, ZMQ knobs)
     # land on RuntimeConfig / LoggingConfig in AIPerfConfig. build_logging_runtime
@@ -416,6 +418,13 @@ _LOADGEN_PHASE_FIELD_MAP: tuple[tuple[str, str], ...] = (
 )
 
 
+# Loadgen-section flags that set a benchmark-level field, not a phase field.
+# ``apply_single_run_fields`` applies them, so the phase overlay skips them.
+_BENCHMARK_LEVEL_FIELDS: frozenset[str] = frozenset(
+    {"warmup_boundary_hook", "warmup_boundary_dir"}
+)
+
+
 def _apply_phase_loadgen_overrides(merged: dict[str, Any], cli: CLIConfig) -> None:
     """Overlay explicit ``--request-count`` / ``--request-rate`` / etc. onto
     the YAML-supplied profiling phase.
@@ -441,7 +450,7 @@ def _apply_phase_loadgen_overrides(merged: dict[str, Any], cli: CLIConfig) -> No
         _apply_agentic_replay_fields,
     )
 
-    loadgen_set = cli.model_fields_set & LOADGEN_FIELDS
+    loadgen_set = (cli.model_fields_set & LOADGEN_FIELDS) - _BENCHMARK_LEVEL_FIELDS
     agentic_set = cli.model_fields_set.intersection(_AGENTIC_REPLAY_ROUTES)
     if not loadgen_set and not agentic_set:
         return

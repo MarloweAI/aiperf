@@ -42,7 +42,10 @@ from aiperf.config.flags._converter_telemetry import (
     build_server_metrics,
     build_wandb,
 )
-from aiperf.config.flags._converter_warmup import build_warmup
+from aiperf.config.flags._converter_warmup import (
+    build_warmup,
+    build_warmup_boundary_hook,
+)
 from aiperf.config.sweep import MAGIC_LIST_FIELDS
 
 if TYPE_CHECKING:
@@ -56,6 +59,7 @@ _ENVELOPE_KEYS = {
     "multi_run",
     "variables",
     "random_seed",
+    "benchmark_id",
     "no_sweep_table",
     "benchmark",
 }
@@ -64,8 +68,8 @@ _ENVELOPE_KEYS = {
 def _wrap_under_envelope(v2_dict: dict[str, Any]) -> dict[str, Any]:
     """Partition a flat-shaped AIPerfConfig dict into envelope shape.
 
-    Envelope keys ({sweep, multi_run, variables, random_seed, no_sweep_table,
-    benchmark}) stay at top level. Everything else is moved under `benchmark:`.
+    Envelope keys ({sweep, multi_run, variables, random_seed, benchmark_id,
+    no_sweep_table, benchmark}) stay at top level. Everything else is moved under `benchmark:`.
     Idempotent: a dict that is already envelope-shaped passes through.
     """
     body = {k: v2_dict[k] for k in list(v2_dict.keys()) if k not in _ENVELOPE_KEYS}
@@ -110,6 +114,7 @@ def _assemble_optional(
     slos: dict[str, float] = {}
     if "random_seed" in cli.model_fields_set:
         nested["random_seed"] = cli.random_seed
+    apply_single_run_fields(nested, cli)
     if "no_sweep_table" in cli.model_fields_set:
         nested["no_sweep_table"] = cli.no_sweep_table
     if cli.goodput:
@@ -121,6 +126,19 @@ def _assemble_optional(
         slos.update(recipe_output["slos"])
     if slos:
         nested["slos"] = slos
+
+
+def apply_single_run_fields(nested: dict[str, Any], cli: CLIConfig) -> None:
+    """Write ``benchmark_id`` and ``warmup_boundary_hook`` when the user set them.
+
+    Shared by the CLI-only converter and the YAML+CLI override builder.
+    ``benchmark_id`` is an envelope key. ``_wrap_under_envelope`` moves
+    ``warmup_boundary_hook`` under ``benchmark:``.
+    """
+    if cli.benchmark_id is not None:
+        nested["benchmark_id"] = cli.benchmark_id
+    if (hook := build_warmup_boundary_hook(cli)) is not None:
+        nested["warmup_boundary_hook"] = hook
 
 
 def _apply_recipe_sweep_parameters(
@@ -676,6 +694,11 @@ def _apply_variants_scenario_sweep(
         variant_cli.sweep_variants = []
         for alias, value in kvpairs.items():
             cli_path = alias_table[alias]
+            if cli_path == "benchmark_id":
+                raise TypeError(
+                    f"--variant {raw!r}: benchmark-id fixes the id of one run. "
+                    "A --variant sweep gives each run its own id."
+                )
             _set_cli_path(variant_cli, cli_path, value)
         variant_envelope = _assemble_envelope_dict(variant_cli)
         run_benchmark = _diff_envelope_benchmark(

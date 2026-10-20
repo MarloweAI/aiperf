@@ -79,7 +79,10 @@ def run_benchmark(plan: BenchmarkPlan) -> None:
 
         seed = resolve_run_seed(plan, plan.variations[0])
         run = _make_benchmark_run(
-            plan.configs[0], random_seed=seed, variables=plan.variables
+            plan.configs[0],
+            benchmark_id=plan.benchmark_id,
+            random_seed=seed,
+            variables=plan.variables,
         )
         _run_single_benchmark(run, on_complete=callbacks)
     else:

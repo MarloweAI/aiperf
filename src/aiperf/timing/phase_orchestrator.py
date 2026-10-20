@@ -14,10 +14,11 @@ Progress reporting is delegated to PhaseRunner.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
-from aiperf.common.enums import CreditPhase
+from aiperf.common.enums import CreditPhase, ProfileCancelReason
 from aiperf.common.hooks import on_init, on_start, on_stop
 from aiperf.common.mixins import AIPerfLifecycleMixin
 from aiperf.credit.callback_handler import CreditCallbackHandler
@@ -30,6 +31,7 @@ from aiperf.timing.request_cancellation import RequestCancellationSimulator
 from aiperf.timing.session_tree import SessionTreeRegistry
 from aiperf.timing.trajectory_source import TrajectorySource
 from aiperf.timing.url_samplers import URLSelectionStrategyProtocol
+from aiperf.timing.warmup_boundary import WarmupBoundaryHook
 
 if TYPE_CHECKING:
     from aiperf.common.models import DatasetMetadata
@@ -217,6 +219,13 @@ class PhaseOrchestrator(AIPerfLifecycleMixin):
         # Active phase runners (for cancellation) - multiple possible with seamless mode
         self._active_runners: list[PhaseRunner] = []
 
+        self._warmup_boundary_hook = (
+            WarmupBoundaryHook(config.warmup_boundary_hook)
+            if config.warmup_boundary_hook is not None
+            else None
+        )
+        self._warmup_boundary_task: asyncio.Future[None] | None = None
+
     @property
     def conversation_source(self) -> ConversationSource:
         """Conversation source for dataset access."""
@@ -260,6 +269,7 @@ class PhaseOrchestrator(AIPerfLifecycleMixin):
             without gaps in request issuance. Multiple runners may be active
             simultaneously (old phase waiting for returns while new phase sends).
         """
+        await self._prepare_warmup_boundary_hook()
         for i, phase_config in enumerate(self._ordered_phase_configs):
             is_final_phase = i == len(self._ordered_phase_configs) - 1
             is_seamless_non_final = phase_config.seamless and not is_final_phase
@@ -293,6 +303,10 @@ class PhaseOrchestrator(AIPerfLifecycleMixin):
                 # Execute phase (runner.run() returns after sending complete for seamless,
                 # or after all returns complete for non-seamless/final phases)
                 await runner.run(is_final_phase=is_final_phase)
+                if runner.phase == CreditPhase.WARMUP and not (
+                    await self._run_warmup_boundary_hook(runner)
+                ):
+                    return
             except Exception as e:
                 self.error(f"Error executing phase {runner.phase}: {e!r}")
                 await self.cancel()
@@ -302,6 +316,67 @@ class PhaseOrchestrator(AIPerfLifecycleMixin):
             # For seamless phases, this happens after returns complete (background task)
             if not is_seamless_non_final:
                 self._active_runners.remove(runner)
+
+    async def _prepare_warmup_boundary_hook(self) -> None:
+        """Check the marker directory and remove old markers before warmup.
+
+        A ``boundary.done`` left by an earlier run would otherwise report a
+        success that this run did not have.
+        """
+        if self._warmup_boundary_hook is None:
+            return
+        await self._guard_warmup_boundary_hook(self._warmup_boundary_hook.prepare())
+
+    async def _run_warmup_boundary_hook(self, warmup_runner: PhaseRunner) -> bool:
+        """Run the configured hook after the warmup phase returns.
+
+        Returns whether the next phase may start. Without a hook it always
+        may. With a hook, the next phase does not start when the warmup phase
+        was cancelled (its ``run()`` also returns then) or when ``cancel()``
+        stopped the hook.
+        """
+        if self._warmup_boundary_hook is None:
+            return True
+        if warmup_runner.was_cancelled:
+            self.warning(
+                "The warmup phase was cancelled. The warmup boundary hook does "
+                "not run and profiling does not start."
+            )
+            return False
+        task = asyncio.ensure_future(
+            self._guard_warmup_boundary_hook(self._warmup_boundary_hook.run())
+        )
+        self._warmup_boundary_task = task
+        try:
+            await task
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if current is not None and current.cancelling():
+                raise
+            self.warning(
+                "The phase orchestrator was cancelled while the warmup boundary "
+                "hook ran. Profiling does not start."
+            )
+            return False
+        finally:
+            self._warmup_boundary_task = None
+        return True
+
+    async def _guard_warmup_boundary_hook(self, step: Awaitable[None]) -> None:
+        """Await a hook step and broadcast ProfileCancelCommand if it fails.
+
+        The raise alone stops this orchestrator, but the other services would
+        then wait for a profiling phase that never starts.
+        """
+        try:
+            await step
+        except Exception as e:
+            await self._phase_publisher.publish_profile_cancel(
+                reason=ProfileCancelReason.WARMUP_BOUNDARY_HOOK_FAILURE,
+                reason_detail=f"The warmup boundary hook failed, so profiling "
+                f"was not started: {e}",
+            )
+            raise
 
     def _phase_runner_cleanup_callback(self, runner: PhaseRunner) -> Callable[[], None]:
         """Create callback that removes runner from active list when phase completes."""
@@ -325,6 +400,8 @@ class PhaseOrchestrator(AIPerfLifecycleMixin):
         await self._credit_router.cancel_all_credits()
 
         self._cancel_active_runners()
+        if self._warmup_boundary_task is not None:
+            self._warmup_boundary_task.cancel()
 
     @on_stop
     async def _stop_orchestrator(self) -> None:

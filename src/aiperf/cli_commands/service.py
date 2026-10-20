@@ -75,6 +75,7 @@ def service(
 
         run = _make_benchmark_run(
             plan.configs[0],
+            benchmark_id=plan.benchmark_id,
             random_seed=resolve_run_seed(plan, plan.variations[0]),
         )
 

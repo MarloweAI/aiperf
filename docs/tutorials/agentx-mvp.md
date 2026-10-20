@@ -444,6 +444,26 @@ warmup.
 These requests remain part of warmup, so they are excluded from exported
 request metrics.
 
+#### Repeating a warmup: `--benchmark-id` and the boundary hook
+
+Each conversation's cache-bust marker is a digest of the run's benchmark id.
+AIPerf makes a random benchmark id for each run, so two runs never send the
+same prompts. `--benchmark-id ID` fixes the id. Two runs with the same id,
+seed and flags send the same warmup prompts, so a second run can start from a
+server cache that the first run saved. Only the run's own id changes: request
+and correlation ids stay random. The id has 1 to 64 characters from `A-Z`,
+`a-z`, `0-9`, `_` and `-`. A parameter sweep or `--num-profile-runs` > 1
+cannot use it, because each of those runs gets its own id. Two runs at the
+same time on one host must not share an id, because AIPerf names its
+memory-map directory after it.
+
+To act on the server between the warmup and the profiling phase, add
+`--warmup-boundary-hook SCRIPT --warmup-boundary-dir DIR`. The warmup phase of
+this scenario drains all its requests before profiling starts, so the hook runs
+at a clean boundary. See
+[Warmup Boundary Hook](warmup.md#warmup-boundary-hook) for the marker files and
+the rules.
+
 ### Profiling Phase: Faithful Replay, Recycle, Global Idle Guard
 
 After warmup, the profiling phase opens. Now you're measuring. Each trajectory

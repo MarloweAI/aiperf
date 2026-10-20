@@ -107,6 +107,7 @@ class ProfileCancelReason(CaseInsensitiveStrEnum):
 
     USER = "user"
     WARMUP_FAILURE = "warmup_failure"
+    WARMUP_BOUNDARY_HOOK_FAILURE = "warmup_boundary_hook_failure"
     FAILED_REQUEST_THRESHOLD = "failed_request_threshold"
 
     @property

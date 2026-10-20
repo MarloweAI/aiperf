@@ -16,6 +16,7 @@ from aiperf.common.enums import (
 )
 from aiperf.common.redact import build_cli_command
 from aiperf.config.base import BaseConfig
+from aiperf.config.benchmark_id import BENCHMARK_ID_PATTERN
 from aiperf.config.comm import BaseZMQCommunicationConfig
 from aiperf.config.config import BenchmarkConfig
 from aiperf.config.sweep import (
@@ -168,6 +169,16 @@ class BenchmarkPlan(BaseModel):
             "live on `variation_seeds`.",
         ),
     ]
+    benchmark_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            pattern=BENCHMARK_ID_PATTERN,
+            description="Envelope-level fixed benchmark id (``--benchmark-id``) "
+            "for a single-run plan. None makes a random id per run. A plan that "
+            "runs more than one benchmark cannot carry it.",
+        ),
+    ]
     variables: Annotated[
         dict[str, object],
         Field(
@@ -260,6 +271,28 @@ class BenchmarkPlan(BaseModel):
         a single config for adaptive_search runs.
         """
         return isinstance(self.sweep, AdaptiveSearchSweep)
+
+    @model_validator(mode="after")
+    def _check_single_run_options(self) -> Self:
+        """Only a single-run plan carries a fixed benchmark id or a boundary hook.
+
+        ``AIPerfConfig`` refuses both with a sweep at the envelope. This check
+        also covers a hook that a sweep variation adds to its own body.
+        """
+        if self.is_single_run:
+            return self
+        if self.benchmark_id is not None:
+            raise ValueError(
+                "benchmark_id fixes the id of one run, but this plan runs "
+                "more than one benchmark."
+            )
+        if any(c.warmup_boundary_hook is not None for c in self.configs):
+            raise ValueError(
+                "--warmup-boundary-hook runs between the warmup and profiling "
+                "phases of one run. It cannot be used with a parameter sweep "
+                "or --num-profile-runs > 1."
+            )
+        return self
 
     @model_validator(mode="after")
     def _check_repeated_incompatible_with_convergence(self) -> Self:

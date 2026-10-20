@@ -44,6 +44,7 @@ from aiperf.config.artifacts import (
     ArtifactsConfig,
 )
 from aiperf.config.base import BaseConfig
+from aiperf.config.benchmark_id import BENCHMARK_ID_PATTERN
 from aiperf.config.comm.build import build_comm_config
 from aiperf.config.dataset import (
     DatasetConfig,
@@ -97,6 +98,7 @@ from aiperf.config.tokenizer import (
 from aiperf.config.wandb import (
     WandbConfig,
 )
+from aiperf.config.warmup_boundary import WarmupBoundaryHookConfig
 
 _logger = AIPerfLogger(__name__)
 
@@ -412,6 +414,19 @@ class BenchmarkConfig(BaseConfig, BenchmarkHelpersMixin):
         ),
     ]
 
+    warmup_boundary_hook: Annotated[
+        WarmupBoundaryHookConfig | None,
+        Field(
+            default=None,
+            description="Bash script that runs after the warmup phase and before "
+            "the profiling phase, with the directory for its marker files. The "
+            "profiling phase waits for the script, and a non-zero exit status "
+            "stops the run. Needs exactly one warmup phase (an agentic replay "
+            "scenario makes its own) that a profiling phase follows without "
+            "seamless. None (the default) runs no hook.",
+        ),
+    ]
+
     # ==========================================================================
     # VALIDATORS
     # ==========================================================================
@@ -492,6 +507,65 @@ class BenchmarkConfig(BaseConfig, BenchmarkHelpersMixin):
                 f"Phase config '{self.phases[0].name}' cannot have seamless=True "
                 "because it is first. Seamless transitions only apply to "
                 "subsequent phase configs."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_warmup_boundary_hook(self) -> Self:
+        """Refuse a warmup boundary hook that no warmup/profiling boundary runs.
+
+        The hook runs once, between one warmup phase and the profiling phase
+        after it. Agentic replay makes its own warmup phase and drops the
+        declared ones (``TimingConfig.from_run``), so for it the boundary is
+        before the first profiling phase. Otherwise the run must declare
+        exactly one warmup phase, and a profiling phase must follow it. A
+        seamless profiling phase does not wait for the warmup requests to
+        return, so it has no boundary to hook.
+
+        A scenario stamps its timing mode onto the phases after construction,
+        so the scenario's declared timing mode decides here, as in
+        ``validate_agentic_cache_warmup``.
+        """
+        if self.warmup_boundary_hook is None:
+            return self
+
+        from aiperf.plugin.enums import TimingMode
+        from aiperf.timing.config import _is_agentic_replay
+
+        if self.scenario is not None:
+            from aiperf.common.scenario.registry import get_scenario
+
+            agentic = get_scenario(self.scenario).timing_mode == (
+                TimingMode.AGENTIC_REPLAY
+            )
+        else:
+            agentic = _is_agentic_replay(self.get_profiling_phases())
+
+        if agentic:
+            following = next(p for p in self.phases if p.kind == "profiling")
+        else:
+            warmup_indexes = [
+                i for i, p in enumerate(self.phases) if p.kind == "warmup"
+            ]
+            if len(warmup_indexes) != 1:
+                raise ValueError(
+                    "--warmup-boundary-hook needs exactly one warmup phase. "
+                    f"The run has {len(warmup_indexes)}. Add a warmup phase (for "
+                    "example --warmup-request-count) or drop the hook."
+                )
+            index = warmup_indexes[0] + 1
+            following = self.phases[index] if index < len(self.phases) else None
+            if following is None or following.kind != "profiling":
+                raise ValueError(
+                    "--warmup-boundary-hook needs a profiling phase directly "
+                    f"after the warmup phase '{self.phases[index - 1].name}'."
+                )
+        if following.seamless:
+            raise ValueError(
+                f"--warmup-boundary-hook cannot run before the seamless phase "
+                f"'{following.name}': a seamless phase starts before the warmup "
+                "requests return, so no boundary exists. Set seamless=false or "
+                "drop the hook."
             )
         return self
 
@@ -755,6 +829,23 @@ class AIPerfConfig(BaseConfig):
         ),
     ]
 
+    benchmark_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            pattern=BENCHMARK_ID_PATTERN,
+            description="Fixed benchmark id for a single run. aiperf digests the "
+            "agentic replay cache-bust markers from the benchmark id, so two runs "
+            "with the same id send the same prompts. Only the run's own id "
+            "changes: request and correlation ids stay random. 1-64 characters "
+            "from A-Z, a-z, 0-9, '_' and '-'. Not allowed with a sweep or with "
+            "more than one profile run, because each of those runs gets its own "
+            "id. Two runs at the same time on one host must not share an id, "
+            "because aiperf names its memory-map directory after it. None (the "
+            "default) makes a random id.",
+        ),
+    ]
+
     random_seed: Annotated[
         int | None,
         Field(
@@ -902,6 +993,33 @@ class AIPerfConfig(BaseConfig):
             _logger.warning("Scenario violation (override active): %s", message)
             return self
         raise ValueError(message)
+
+    @model_validator(mode="after")
+    def _reject_single_run_options_with_multiple_runs(self) -> Self:
+        """Refuse single-run options when the plan runs more than one benchmark.
+
+        A sweep or ``multi_run.num_runs > 1`` makes several runs, and each gets
+        its own derived benchmark id. A fixed ``benchmark_id`` would then mean
+        either one id for every run or an id that is silently ignored.
+        The warmup boundary hook writes its markers into one directory, and
+        runs after the first one drop their warmup phase by default
+        (``multi_run.disable_warmup_after_first``).
+        """
+        if self.sweep is None and self.multi_run.num_runs <= 1:
+            return self
+        if self.benchmark_id is not None:
+            raise ValueError(
+                "--benchmark-id fixes the id of one run. It cannot be used with "
+                "a parameter sweep or --num-profile-runs > 1, which give each "
+                "run its own id."
+            )
+        if self.benchmark.warmup_boundary_hook is not None:
+            raise ValueError(
+                "--warmup-boundary-hook runs between the warmup and profiling "
+                "phases of one run. It cannot be used with a parameter sweep or "
+                "--num-profile-runs > 1."
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_sweep_no_dashboard_ui(self) -> Self:

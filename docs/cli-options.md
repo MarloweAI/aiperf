@@ -533,6 +533,10 @@ Allow weka/agentic replay to wrap (reuse distinct eligible traces across concurr
 Random seed for deterministic data generation. When set, makes synthetic prompts, sampling, delays, and other random operations reproducible across runs. Essential for A/B testing and debugging. Uses system entropy if not specified. Initialized globally at config creation.
 <br/>_Constraints: ≥ 0_
 
+#### `--benchmark-id` `<str>`
+
+Fixed benchmark id for this run, instead of a random one. aiperf digests each agentic replay conversation's cache-bust marker from the benchmark id, so two runs with the same id send the same prompts. Only the run's id changes: request and correlation ids stay random. 1-64 characters from `A-Z`, `a-z`, `0-9`, `_` and `-`. Not allowed with a parameter sweep or `--num-profile-runs` > 1. Two runs at the same time on one host must not share an id.
+
 #### `--trace-session-sample-ratio` `<float>`
 
 Fraction of trace sessions to keep for replay, sampled whole-session to preserve multi-turn integrity; deterministic when `--random-seed` is set. Only supported by the baseten_trace loader.
@@ -1166,6 +1170,14 @@ The arrival pattern to use for the warmup phase. If not set, it will use the `--
 
 The grace period in seconds to wait for responses after warmup phase ends. Only applies when warmup is enabled. Responses received within this period are included in warmup completion. If not set, waits indefinitely for all warmup responses.
 <br/>_Constraints: ≥ 0_
+
+#### `--warmup-boundary-hook` `<str>`
+
+Bash script that runs after the warmup phase completes and before the profiling phase starts. The profiling phase waits for it. A non-zero exit status stops the run before profiling. Requires `--warmup-boundary-dir` and a warmup phase. Not allowed with a parameter sweep or `--num-profile-runs` > 1.
+
+#### `--warmup-boundary-dir` `<str>`
+
+Existing directory for the warmup boundary hook's marker files: `warmup.done` when the warmup phase returns and `boundary.done` when the hook exits with status 0. Each file holds `time.time_ns()` and a newline. Requires `--warmup-boundary-hook`.
 
 #### `--warmup-concurrency-ramp-duration` `<float>`
 
@@ -2068,6 +2080,10 @@ Allow weka/agentic replay to wrap (reuse distinct eligible traces across concurr
 Random seed for deterministic data generation. When set, makes synthetic prompts, sampling, delays, and other random operations reproducible across runs. Essential for A/B testing and debugging. Uses system entropy if not specified. Initialized globally at config creation.
 <br/>_Constraints: ≥ 0_
 
+#### `--benchmark-id` `<str>`
+
+Fixed benchmark id for this run, instead of a random one. aiperf digests each agentic replay conversation's cache-bust marker from the benchmark id, so two runs with the same id send the same prompts. Only the run's id changes: request and correlation ids stay random. 1-64 characters from `A-Z`, `a-z`, `0-9`, `_` and `-`. Not allowed with a parameter sweep or `--num-profile-runs` > 1. Two runs at the same time on one host must not share an id.
+
 #### `--trace-session-sample-ratio` `<float>`
 
 Fraction of trace sessions to keep for replay, sampled whole-session to preserve multi-turn integrity; deterministic when `--random-seed` is set. Only supported by the baseten_trace loader.
@@ -2701,6 +2717,14 @@ The arrival pattern to use for the warmup phase. If not set, it will use the `--
 
 The grace period in seconds to wait for responses after warmup phase ends. Only applies when warmup is enabled. Responses received within this period are included in warmup completion. If not set, waits indefinitely for all warmup responses.
 <br/>_Constraints: ≥ 0_
+
+#### `--warmup-boundary-hook` `<str>`
+
+Bash script that runs after the warmup phase completes and before the profiling phase starts. The profiling phase waits for it. A non-zero exit status stops the run before profiling. Requires `--warmup-boundary-dir` and a warmup phase. Not allowed with a parameter sweep or `--num-profile-runs` > 1.
+
+#### `--warmup-boundary-dir` `<str>`
+
+Existing directory for the warmup boundary hook's marker files: `warmup.done` when the warmup phase returns and `boundary.done` when the hook exits with status 0. Each file holds `time.time_ns()` and a newline. Requires `--warmup-boundary-hook`.
 
 #### `--warmup-concurrency-ramp-duration` `<float>`
 
