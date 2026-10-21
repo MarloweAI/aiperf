@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import orjson
 
-from aiperf.common.enums import RequestContentType
+from aiperf.common.enums import CreditPhase, RequestContentType
 from aiperf.common.mixins import AIPerfLifecycleMixin
 from aiperf.common.models import (
     ErrorDetails,
@@ -21,6 +21,7 @@ from aiperf.common.models import (
 from aiperf.common.redact import redact_headers
 from aiperf.plugin import plugins
 from aiperf.plugin.enums import PluginType, TransportType
+from aiperf.records.usage_only_warmup import body_streams_one_token
 
 if TYPE_CHECKING:
     from aiperf.transports.base_transports import FirstTokenCallback
@@ -63,6 +64,7 @@ class InferenceClient(AIPerfLifecycleMixin):
         service_id: str,
         *,
         strip_record_payload_bytes: bool = False,
+        accept_usage_only_warmup: bool = False,
         **kwargs,
     ):
         super().__init__(model_endpoint=model_endpoint, service_id=service_id, **kwargs)
@@ -72,6 +74,9 @@ class InferenceClient(AIPerfLifecycleMixin):
         # RecordContext after dispatch (memory optimization for large prompts).
         # Resolved by the worker via record payload-retention auto-detection.
         self.strip_record_payload_bytes = strip_record_payload_bytes
+        # ``--warmup-accept-usage-only``: check one-token warmup bodies before
+        # stripping them (``aiperf.records.usage_only_warmup``).
+        self.accept_usage_only_warmup = accept_usage_only_warmup
 
         # Detect and set transport type if not explicitly set
         if not model_endpoint.transport:
@@ -273,6 +278,17 @@ class InferenceClient(AIPerfLifecycleMixin):
                 if last_turn is not None and last_turn.timestamp is not None
                 else None
             )
+
+            # The usage-only warmup rule needs the body as sent, so it is
+            # checked here, before the bytes may be stripped.
+            if (
+                self.accept_usage_only_warmup
+                and record.request_info.credit_phase == CreditPhase.WARMUP
+                and record.request_info.max_tokens == 1
+            ):
+                record.request_info.streams_one_token = body_streams_one_token(
+                    record.request_info.payload_bytes
+                )
 
             # When stripping is enabled (large-prompt memory optimization,
             # resolved by the worker's payload-retention auto-detection), drop

@@ -4044,6 +4044,12 @@
           "default": null,
           "description": "Bash script that runs after the warmup phase and before the profiling phase, with the directory for its marker files. The profiling phase waits for the script, and a non-zero exit status stops the run. Needs exactly one warmup phase (an agentic replay scenario makes its own) that a profiling phase follows without seamless. None (the default) runs no hook."
         },
+        "warmupAcceptUsageOnly": {
+          "default": false,
+          "description": "Count a complete warmup reply of one token without text as valid. A reasoning parser can remove the one token that a ``max_tokens=1`` warmup request gets, so the stream has only a finish chunk, usage and ``[DONE]``. The reply must be in the warmup phase with ``max_tokens`` 1, HTTP 200, no error, not cancelled, end in exactly one ``[DONE]``, finish once with ``length`` or ``stop``, and report 1 completion token in usage. Profiling requests are never accepted. False (the default) keeps the content check.",
+          "title": "Warmupacceptusageonly",
+          "type": "boolean"
+        },
         "model": {
           "description": "Shorthand for 'models'. Accepts a single value which will be converted to a list/dict. Model configuration. Accepts a single model name string, a list of model names, or an advanced configuration with strategy and weighted items. All forms are normalized to ModelsAdvanced.",
           "oneOf": [

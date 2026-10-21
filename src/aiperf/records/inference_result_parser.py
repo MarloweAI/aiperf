@@ -31,6 +31,7 @@ from aiperf.common.tokenizer import Tokenizer
 from aiperf.plugin import plugins
 from aiperf.plugin.enums import PluginType
 from aiperf.records.payload_retention import resolve_disable_tokenization
+from aiperf.records.usage_only_warmup import is_usage_only_one_token_warmup
 
 if TYPE_CHECKING:
     from aiperf.config.resolution.plan import BenchmarkRun
@@ -300,6 +301,18 @@ class InferenceResultParser(CommunicationMixin):
 
         resp = self.endpoint.extract_response_data(request_record)
 
+        # The usage-only warmup rule reads the raw stream, so it runs before
+        # the raw responses are freed.
+        usage_only_warmup = (
+            self.run.cfg.warmup_accept_usage_only
+            and is_usage_only_one_token_warmup(request_record)
+        )
+        if usage_only_warmup:
+            self.info(
+                lambda: "Accepted usage-only one-token warmup reply "
+                f"(id: {request_record.request_info.x_request_id})"
+            )
+
         # Free the raw responses list after extraction.
         # Skip when RAW export needs the original responses for serialization.
         if self.run.cfg.artifacts.export_level != ExportLevel.RAW:
@@ -321,6 +334,7 @@ class InferenceResultParser(CommunicationMixin):
             token_counts=token_counts,
             media_counts=media_counts or MediaCounts(),
             spec_decode_acceptance=self._extract_spec_decode_acceptance(resp),
+            usage_only_warmup=usage_only_warmup,
         )
 
     @staticmethod

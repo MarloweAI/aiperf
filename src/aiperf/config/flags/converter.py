@@ -129,16 +129,20 @@ def _assemble_optional(
 
 
 def apply_single_run_fields(nested: dict[str, Any], cli: CLIConfig) -> None:
-    """Write ``benchmark_id`` and ``warmup_boundary_hook`` when the user set them.
+    """Write ``benchmark_id``, ``warmup_boundary_hook`` and
+    ``warmup_accept_usage_only`` when the user set them.
 
     Shared by the CLI-only converter and the YAML+CLI override builder.
     ``benchmark_id`` is an envelope key. ``_wrap_under_envelope`` moves
-    ``warmup_boundary_hook`` under ``benchmark:``.
+    ``warmup_boundary_hook`` and ``warmup_accept_usage_only`` under
+    ``benchmark:``.
     """
     if cli.benchmark_id is not None:
         nested["benchmark_id"] = cli.benchmark_id
     if (hook := build_warmup_boundary_hook(cli)) is not None:
         nested["warmup_boundary_hook"] = hook
+    if "warmup_accept_usage_only" in cli.model_fields_set:
+        nested["warmup_accept_usage_only"] = cli.warmup_accept_usage_only
 
 
 def _apply_recipe_sweep_parameters(
