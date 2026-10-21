@@ -312,6 +312,37 @@ Rules:
   phase does not wait for the warmup requests.
 - A parameter sweep or `--num-profile-runs` > 1 cannot use the hook.
 
+## One-Token Warmup Replies Without Text
+
+Agentic replay sends its warmup requests with `max_tokens=1`. A reasoning model
+often spends that token on a marker such as `<think>`. The server's reasoning
+parser (SGLang, or a server that copies it) removes the marker, so the stream
+has no text: only a finish chunk, a usage chunk with `completion_tokens: 1` and
+`[DONE]`. By default aiperf counts this reply as a failed request
+(`InvalidInferenceResultError: No responses with actual content ...`), and the
+warmup metrics show it in `error_request_count`.
+
+`--warmup-accept-usage-only` counts such a reply as valid. All of these must be
+true:
+
+- the request is in the warmup phase, its `max_tokens` is 1, and the request body
+  as sent (after endpoint extras) streams one choice and caps every token limit
+  at 1. The worker checks the body before it strips it from the record.
+- HTTP 200, no error, not cancelled
+- the stream ends in exactly one `[DONE]`, all chunks share one `id`, and no
+  chunk has an `error` other than null
+- no delta has text, and exactly one choice finishes, with `length` or `stop`
+- no usage report shows more than 1 completion token or fewer than an earlier
+  report, and the last usage reports 1 completion token, at most 1 reasoning
+  token, and `total_tokens` = `prompt_tokens` + `completion_tokens`
+
+Profiling requests are never accepted. aiperf does not invent content for the
+record: its content-based metrics (for example TTFT) have no value.
+
+```bash
+aiperf profile --scenario inferencex-agentx-mvp ... --warmup-accept-usage-only
+```
+
 ## Multi-Turn Warmup
 
 For multi-turn benchmarks, warmup by session count ensures complete conversations:
@@ -440,6 +471,7 @@ aiperf profile \
 | `--warmup-grace-period` | float | ∞ | Max seconds to wait for warmup responses after stop condition. Requires `--warmup-duration`. |
 | `--warmup-boundary-hook` | path | - | Bash script to run after warmup and before profiling. Requires `--warmup-boundary-dir`. See [Warmup Boundary Hook](#warmup-boundary-hook). |
 | `--warmup-boundary-dir` | path | - | Existing directory for `warmup.done` and `boundary.done`. Requires `--warmup-boundary-hook`. |
+| `--warmup-accept-usage-only` | flag | off | Count a complete one-token warmup reply without text as valid. See [One-Token Warmup Replies Without Text](#one-token-warmup-replies-without-text). |
 
 ## Troubleshooting
 

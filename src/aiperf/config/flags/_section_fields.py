@@ -179,6 +179,7 @@ LOADGEN_FIELDS: frozenset[str] = frozenset(
         "trajectory_start_max_ratio",
         "trajectory_start_min_ratio",
         "user_centric_rate",
+        "warmup_accept_usage_only",
         "warmup_arrival_pattern",
         "warmup_boundary_dir",
         "warmup_boundary_hook",

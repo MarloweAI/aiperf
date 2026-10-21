@@ -425,7 +425,7 @@ _LOADGEN_PHASE_FIELD_MAP: tuple[tuple[str, str], ...] = (
 # Loadgen-section flags that set a benchmark-level field, not a phase field.
 # ``apply_single_run_fields`` applies them, so the phase overlay skips them.
 _BENCHMARK_LEVEL_FIELDS: frozenset[str] = frozenset(
-    {"warmup_boundary_hook", "warmup_boundary_dir"}
+    {"warmup_boundary_hook", "warmup_boundary_dir", "warmup_accept_usage_only"}
 )
 
 

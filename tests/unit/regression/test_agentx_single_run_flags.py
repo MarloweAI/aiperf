@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""``--benchmark-id`` and the warmup boundary hook on the AgentX request path.
+"""``--benchmark-id``, the warmup boundary hook and ``--warmup-accept-usage-only``
+on the AgentX request path.
 
 Uses the offline request path of ``test_agentx_request_bodies_golden``: CLI
 flags, ``run_benchmark``, the weka trace loader, ``PhaseOrchestrator`` and a
@@ -131,4 +132,26 @@ async def test_screening_relaxes_only_the_duration_and_leaves_bodies_unchanged(
     ]
     assert plain.submission_invalid_reasons == ["unsafe_override"]
     assert screening.submission_invalid_reasons == ["screening", "unsafe_override"]
+    assert entries == _golden_entries()
+
+
+@pytest.mark.asyncio
+async def test_warmup_accept_usage_only_leaves_bodies_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_tokenizer,
+    skip_service_registration,
+) -> None:
+    # The flag changes only how the record processor judges warmup replies.
+    plain_run, _, _ = await agentx_requests(tmp_path / "plain", monkeypatch)
+    run, _, entries = await agentx_requests(
+        tmp_path / "accept", monkeypatch, {"warmup_accept_usage_only": True}
+    )
+
+    assert run.cfg.warmup_accept_usage_only is True
+    assert plain_run.cfg.warmup_accept_usage_only is False
+    plain = plain_run.resolved.scenario_outcome
+    accept = run.resolved.scenario_outcome
+    assert accept.violations == plain.violations
+    assert accept.submission_invalid_reasons == plain.submission_invalid_reasons
     assert entries == _golden_entries()

@@ -1184,6 +1184,11 @@ Bash script that runs after the warmup phase completes and before the profiling 
 
 Existing directory for the warmup boundary hook's marker files: `warmup.done` when the warmup phase returns and `boundary.done` when the hook exits with status 0. Each file holds `time.time_ns()` and a newline. Requires `--warmup-boundary-hook`.
 
+#### `--warmup-accept-usage-only`
+
+Count a complete warmup reply of one token without text as valid. A reasoning parser can remove the one token that a `max_tokens=1` warmup request gets (for example `<think>`), so the stream has only a finish chunk, usage and `[DONE]`. The reply must be in the warmup phase with `max_tokens` 1, HTTP 200, no error, not cancelled, end in exactly one `[DONE]`, finish once with `length` or `stop`, and report 1 completion token in usage. Profiling requests are never accepted.
+<br/>_Flag (no value required)_
+
 #### `--warmup-concurrency-ramp-duration` `<float>`
 
 Duration in seconds to ramp warmup session concurrency from 1 to target. If not set, uses `--concurrency-ramp-duration` value.
@@ -2735,6 +2740,11 @@ Bash script that runs after the warmup phase completes and before the profiling 
 #### `--warmup-boundary-dir` `<str>`
 
 Existing directory for the warmup boundary hook's marker files: `warmup.done` when the warmup phase returns and `boundary.done` when the hook exits with status 0. Each file holds `time.time_ns()` and a newline. Requires `--warmup-boundary-hook`.
+
+#### `--warmup-accept-usage-only`
+
+Count a complete warmup reply of one token without text as valid. A reasoning parser can remove the one token that a `max_tokens=1` warmup request gets (for example `<think>`), so the stream has only a finish chunk, usage and `[DONE]`. The reply must be in the warmup phase with `max_tokens` 1, HTTP 200, no error, not cancelled, end in exactly one `[DONE]`, finish once with `length` or `stop`, and report 1 completion token in usage. Profiling requests are never accepted.
+<br/>_Flag (no value required)_
 
 #### `--warmup-concurrency-ramp-duration` `<float>`
 

@@ -972,6 +972,13 @@ class RecordContext(AIPerfBaseModel):
         "time so the record processor reads it directly off the record without the full ``turns`` "
         "list on the wire.",
     )
+    streams_one_token: bool = Field(
+        default=False,
+        description="True when the request body as sent streams one choice capped at 1 token "
+        "(``aiperf.records.usage_only_warmup.body_streams_one_token``). Set by "
+        "``inference_client`` before it may strip ``payload_bytes``, only for warmup requests "
+        "with ``max_tokens`` 1 when ``--warmup-accept-usage-only`` is on. False otherwise.",
+    )
     audio_duration_seconds: float | None = Field(
         default=None,
         description="``audio_duration_seconds`` from the originating turn. Populated at "
@@ -1551,6 +1558,12 @@ class ParsedResponseRecord:
     suppressed); no registered adapter recognized the payload; or the payload
     was malformed and the adapter rejected it."""
 
+    usage_only_warmup: bool = False
+    """True when ``--warmup-accept-usage-only`` is set and the raw stream was a
+    complete warmup reply of one token without text (see
+    ``aiperf.records.usage_only_warmup``). Such a record is valid without
+    content responses. Always False for profiling requests."""
+
     @cached_property
     def final_usage(self) -> Usage | None:
         """API-reported usage from the last streaming response chunk that had any.
@@ -1608,7 +1621,8 @@ class ParsedResponseRecord:
 
         Checks:
         - Request has no errors
-        - Has at least one content response
+        - Has at least one content response, or is an accepted usage-only
+          warmup reply (``usage_only_warmup``)
         - Start time is before the end time
         - Response timestamps are within valid ranges
 
@@ -1617,7 +1631,7 @@ class ParsedResponseRecord:
         """
         return (
             not self.has_error
-            and len(self.content_responses) > 0
+            and (len(self.content_responses) > 0 or self.usage_only_warmup)
             and 0 <= self.start_perf_ns < self.end_perf_ns < sys.maxsize
             and all(0 < response.perf_ns < sys.maxsize for response in self.responses)
         )

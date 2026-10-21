@@ -441,6 +441,21 @@ class BenchmarkConfig(BaseConfig, BenchmarkHelpersMixin):
         ),
     ]
 
+    warmup_accept_usage_only: Annotated[
+        bool,
+        Field(
+            default=False,
+            description="Count a complete warmup reply of one token without "
+            "text as valid. A reasoning parser can remove the one token that a "
+            "``max_tokens=1`` warmup request gets, so the stream has only a "
+            "finish chunk, usage and ``[DONE]``. The reply must be in the warmup "
+            "phase with ``max_tokens`` 1, HTTP 200, no error, not cancelled, end "
+            "in exactly one ``[DONE]``, finish once with ``length`` or ``stop``, "
+            "and report 1 completion token in usage. Profiling requests are "
+            "never accepted. False (the default) keeps the content check.",
+        ),
+    ]
+
     # ==========================================================================
     # VALIDATORS
     # ==========================================================================

@@ -563,6 +563,7 @@ class Worker(BaseComponentService, ProcessHealthMixin):
             strip_record_payload_bytes=resolve_strip_record_payload_bytes(
                 self.run.cfg, self.model_endpoint
             ),
+            accept_usage_only_warmup=self.run.cfg.warmup_accept_usage_only,
         )
         self.attach_child_lifecycle(self.inference_client)
         self.debug(
