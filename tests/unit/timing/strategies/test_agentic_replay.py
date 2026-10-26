@@ -1046,6 +1046,151 @@ def test_cache_warmup_handoff_restores_one_flattened_tree_timeline() -> None:
     ] == ["child-b", "child-a", "root"]
 
 
+def _make_origin_strategy(
+    conversations: list[ConversationMetadata], t_star_ms: float
+) -> AgenticReplayStrategy:
+    dataset = DatasetMetadata(
+        conversations=conversations,
+        sampling_strategy=DatasetSamplingStrategy.SEQUENTIAL,
+    )
+    strategy, _, _, _ = _make_strategy(
+        phase=CreditPhase.WARMUP,
+        trajectories=[Trajectory(conversation_id="trace_0", start_turn_index=0)],
+        dataset=dataset,
+        cache_warmup_requests_per_lane=10,
+    )
+    strategy._root_to_lane["root"] = 0
+    strategy._replay_origin_ms_by_root["root"] = t_star_ms
+    strategy._accelerated_warmup_started = True
+    return strategy
+
+
+def test_cache_warmup_handoff_does_not_rewait_warmed_recorded_time() -> None:
+    """A long recorded gap that warmup already skipped is not waited out again."""
+    strategy = _make_origin_strategy(
+        [
+            ConversationMetadata(
+                conversation_id="trace_0",
+                turns=[
+                    TurnMetadata(timestamp_ms=0.0),
+                    TurnMetadata(timestamp_ms=748_000.0, api_time_ms=4_700.0),
+                    TurnMetadata(timestamp_ms=933_800.0, api_time_ms=5_900.0),
+                    TurnMetadata(timestamp_ms=2_595_100.0, api_time_ms=8_500.0),
+                    TurnMetadata(timestamp_ms=2_608_800.0),
+                ],
+            )
+        ],
+        t_star_ms=800_000.0,
+    )
+    for turn_index in (2, 3):
+        strategy.observe_credit_return(
+            _make_credit(
+                conversation_id="trace_0",
+                x_correlation_id="root",
+                turn_index=turn_index,
+                num_turns=5,
+                phase=CreditPhase.WARMUP,
+                root_correlation_id="root",
+            )
+        )
+
+    state = strategy._build_handoff_states()[0][0]
+
+    # 2_608_800 - (2_595_100 + 8_500): the recorded gap after the last warmed
+    # turn, not the 1_808_800 ms measured from t*.
+    assert state.next_turn_index == 4
+    assert state.next_dispatch_offset_ms == pytest.approx(5_200.0)
+
+
+def test_cache_warmup_handoff_origin_is_shared_by_the_whole_tree() -> None:
+    """Every stream counts from the tree's latest warmed end; spacing is kept."""
+    strategy = _make_origin_strategy(
+        [
+            ConversationMetadata(
+                conversation_id="trace_0",
+                turns=[
+                    TurnMetadata(timestamp_ms=0.0),
+                    TurnMetadata(timestamp_ms=20_000.0, api_time_ms=1_000.0),
+                    TurnMetadata(timestamp_ms=220_000.0),
+                ],
+            ),
+            ConversationMetadata(
+                conversation_id="trace_0::fa:000",
+                turns=[
+                    TurnMetadata(timestamp_ms=110_000.0, api_time_ms=5_000.0),
+                    TurnMetadata(timestamp_ms=160_000.0),
+                ],
+                is_root=False,
+                agent_depth=1,
+                parent_conversation_id="trace_0",
+            ),
+        ],
+        t_star_ms=10_000.0,
+    )
+    strategy.observe_credit_return(
+        _make_credit(
+            conversation_id="trace_0",
+            x_correlation_id="root",
+            turn_index=1,
+            num_turns=3,
+            phase=CreditPhase.WARMUP,
+            root_correlation_id="root",
+        )
+    )
+    strategy.observe_credit_return(
+        _make_credit(
+            conversation_id="trace_0::fa:000",
+            x_correlation_id="child",
+            turn_index=0,
+            num_turns=2,
+            phase=CreditPhase.WARMUP,
+            agent_depth=1,
+            parent_correlation_id="root",
+            root_correlation_id="root",
+            branch_mode=ConversationBranchMode.SPAWN,
+        )
+    )
+
+    offsets = {
+        state.x_correlation_id: state.next_dispatch_offset_ms
+        for state in strategy._build_handoff_states()[0]
+    }
+
+    assert offsets == {
+        "child": pytest.approx(160_000.0 - 115_000.0),
+        "root": pytest.approx(220_000.0 - 115_000.0),
+    }
+
+
+def test_snapshot_primer_return_does_not_move_replay_origin() -> None:
+    strategy = _make_origin_strategy(
+        [
+            ConversationMetadata(
+                conversation_id="trace_0",
+                turns=[
+                    TurnMetadata(timestamp_ms=0.0, api_time_ms=50_000.0),
+                    TurnMetadata(timestamp_ms=90_000.0),
+                ],
+            )
+        ],
+        t_star_ms=10_000.0,
+    )
+    strategy._accelerated_warmup_started = False
+
+    strategy.observe_credit_return(
+        _make_credit(
+            conversation_id="trace_0",
+            x_correlation_id="root",
+            turn_index=0,
+            num_turns=2,
+            phase=CreditPhase.WARMUP,
+            root_correlation_id="root",
+        )
+    )
+
+    assert strategy._replay_origin_ms_by_root["root"] == pytest.approx(10_000.0)
+
+
 @pytest.mark.asyncio
 async def test_recycled_warmup_root_gets_a_fresh_flattened_timeline_origin() -> None:
     dataset = DatasetMetadata(

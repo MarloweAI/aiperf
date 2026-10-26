@@ -906,10 +906,36 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         if lane is not None:
             self._root_to_lane[root_correlation_id] = lane
             self._correlation_to_lane[credit.x_correlation_id] = lane
+        self._advance_replay_origin(credit)
         if credit.is_final_turn:
             self._handoff_credits.pop(credit.x_correlation_id, None)
         else:
             self._handoff_credits[credit.x_correlation_id] = credit
+
+    def _advance_replay_origin(self, credit: Credit) -> None:
+        """Move the tree's replay origin to the recorded end of a warmed turn.
+
+        Accelerated warmup replays recorded turns without their idle delays.
+        Leaving the origin at t* would make profiling wait out that skipped
+        recorded time again before each tree's first profiled request.
+        """
+        root_correlation_id = credit.effective_root_correlation_id
+        origin_ms = self._replay_origin_ms_by_root.get(root_correlation_id)
+        if origin_ms is None:
+            return
+        try:
+            metadata = self.conversation_source.get_metadata(credit.conversation_id)
+        except KeyError:
+            return
+        if not 0 <= credit.turn_index < len(metadata.turns):
+            return
+        turn = metadata.turns[credit.turn_index]
+        timestamp_ms = _as_timestamp_ms(getattr(turn, "timestamp_ms", None))
+        if timestamp_ms is None:
+            return
+        api_ms = _as_timestamp_ms(getattr(turn, "api_time_ms", None))
+        end_ms = timestamp_ms + max(0.0, api_ms or 0.0)
+        self._replay_origin_ms_by_root[root_correlation_id] = max(origin_ms, end_ms)
 
     async def _handle_accelerated_warmup_return(self, credit: Credit) -> None:
         """Issue the next compressed turn or recycle a completed tree."""
