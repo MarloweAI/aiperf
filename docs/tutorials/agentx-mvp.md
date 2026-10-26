@@ -492,9 +492,12 @@ warmup wire requests. For example, `--concurrency 16` with
 primers, with a strict 10-additional-request quota on every lane.
 
 At handoff, timestamped root, subagent, and background streams are restored to
-their next request's position on one shared per-trajectory dataset clock. The
-earliest pending request starts profiling immediately; the remaining streams
-retain their flattened cross-stream order and relative start spacing. For a
+their next request's position on one shared per-trajectory dataset clock. That
+clock is measured from the recorded end of the trajectory's latest warmed
+request, so recorded time the warmup already replayed without delays is not
+waited out again. The earliest pending request starts profiling immediately;
+the remaining streams retain their flattened cross-stream order and relative
+start spacing. For a
 timestamp-less dataset, AIPerf falls back to each stream's recorded
 end-to-start delay.
 
