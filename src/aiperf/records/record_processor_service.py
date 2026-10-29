@@ -262,6 +262,7 @@ class RecordProcessor(PullClientMixin, BaseComponentService):
             phase_kind=record.request_info.phase_kind,
             x_request_id=record.request_info.x_request_id,
             x_correlation_id=record.request_info.x_correlation_id,
+            attempt_count=len(record.retried_errors) + 1,
             session_num=record.request_info.credit_num,
             worker_id=worker_id,
             was_cancelled=cancellation_time_ns is not None,

@@ -64,6 +64,9 @@ class EndpointDefaults:
     WAIT_FOR_MODEL_INTERVAL = 5.0
     WAIT_FOR_MODEL_MODE = "inference"
     UUID_AND_STRIP = False
+    RETRY_FAILED_REQUESTS = False
+    RETRY_WAIT_SECONDS = 10.0
+    RETRY_MAX_ATTEMPTS = 0
 
 
 class TemplateConfig(BaseConfig):
@@ -187,6 +190,38 @@ class EndpointConfig(BaseConfig):
             description="Request timeout in seconds (0 = no timeout). "
             "Requests exceeding this duration are marked as failed. "
             "Should exceed expected max response time.",
+        ),
+    ]
+
+    retry_failed_requests: Annotated[
+        bool,
+        Field(
+            default=EndpointDefaults.RETRY_FAILED_REQUESTS,
+            description="Retry a request that fails with HTTP 5xx or 429, a connection "
+            "error, or a stream that ends before `data: [DONE]`, the way a user retries. "
+            "The conversation waits for its retried turn. Latency and TTFT are measured "
+            "from the first attempt. For reliability experiments; leave off for "
+            "performance measurements.",
+        ),
+    ]
+
+    retry_wait_seconds: Annotated[
+        float,
+        Field(
+            gt=0.0,
+            default=EndpointDefaults.RETRY_WAIT_SECONDS,
+            description="Seconds to wait before each retry when retries are enabled.",
+        ),
+    ]
+
+    retry_max_attempts: Annotated[
+        int,
+        Field(
+            ge=0,
+            default=EndpointDefaults.RETRY_MAX_ATTEMPTS,
+            description="Maximum attempts per request including the first when retries "
+            "are enabled (0 = keep retrying until the request succeeds or the benchmark "
+            "phase cancels it).",
         ),
     ]
 

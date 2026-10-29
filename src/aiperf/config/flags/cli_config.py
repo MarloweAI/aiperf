@@ -229,6 +229,46 @@ class CLIConfig(BaseConfig):
         ),
     ] = EndpointDefaults.TIMEOUT
 
+    retry_failed_requests: Annotated[
+        bool,
+        Field(
+            description="Retry a request that fails with HTTP 5xx or 429, a connection error, "
+            "or a stream that ends before `data: [DONE]`. The conversation waits for its "
+            "retried turn, and latency and TTFT are measured from the first attempt. "
+            "For reliability experiments; leave off for performance measurements.",
+        ),
+        CLIParameter(
+            name=("--retry-failed-requests",),
+            group=Groups.ENDPOINT,
+        ),
+    ] = EndpointDefaults.RETRY_FAILED_REQUESTS
+
+    retry_wait_seconds: Annotated[
+        float,
+        Field(
+            gt=0,
+            description="Seconds to wait before each retry when --retry-failed-requests is set.",
+        ),
+        CLIParameter(
+            name=("--retry-wait-seconds",),
+            group=Groups.ENDPOINT,
+        ),
+    ] = EndpointDefaults.RETRY_WAIT_SECONDS
+
+    retry_max_attempts: Annotated[
+        int,
+        Field(
+            ge=0,
+            description="Maximum attempts per request including the first when "
+            "--retry-failed-requests is set (0 = until the request succeeds or the phase "
+            "cancels it).",
+        ),
+        CLIParameter(
+            name=("--retry-max-attempts",),
+            group=Groups.ENDPOINT,
+        ),
+    ] = EndpointDefaults.RETRY_MAX_ATTEMPTS
+
     wait_for_model_timeout: Annotated[
         float,
         Field(

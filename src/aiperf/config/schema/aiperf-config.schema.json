@@ -13031,6 +13031,62 @@
           ],
           "x-jinja2-supported": true
         },
+        "retryFailedRequests": {
+          "default": false,
+          "description": "Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`, the way a user retries. The conversation waits for its retried turn. Latency and TTFT are measured from the first attempt. For reliability experiments; leave off for performance measurements.",
+          "title": "Retryfailedrequests",
+          "type": "boolean"
+        },
+        "retryWaitSeconds": {
+          "default": 10.0,
+          "description": "Seconds to wait before each retry when retries are enabled.",
+          "title": "Retrywaitseconds",
+          "oneOf": [
+            {
+              "default": 10.0,
+              "description": "Seconds to wait before each retry when retries are enabled.",
+              "exclusiveMinimum": 0.0,
+              "title": "Retrywaitseconds",
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "x-jinja2-supported": true
+        },
+        "retryMaxAttempts": {
+          "default": 0,
+          "description": "Maximum attempts per request including the first when retries are enabled (0 = keep retrying until the request succeeds or the benchmark phase cancels it).",
+          "title": "Retrymaxattempts",
+          "oneOf": [
+            {
+              "default": 0,
+              "description": "Maximum attempts per request including the first when retries are enabled (0 = keep retrying until the request succeeds or the benchmark phase cancels it).",
+              "minimum": 0,
+              "title": "Retrymaxattempts",
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "x-jinja2-supported": true
+        },
         "streaming": {
           "default": false,
           "description": "Enable streaming (Server-Sent Events) responses. Required for accurate TTFT (time to first token) measurement. Server must support streaming for this to work.",

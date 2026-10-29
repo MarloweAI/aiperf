@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -17,6 +18,7 @@ from aiperf.common.models import (
     RecordContext,
     RequestInfo,
     RequestRecord,
+    SSEMessage,
 )
 from aiperf.common.redact import redact_headers
 from aiperf.plugin import plugins
@@ -25,6 +27,44 @@ from aiperf.records.usage_only_warmup import body_streams_one_token
 
 if TYPE_CHECKING:
     from aiperf.transports.base_transports import FirstTokenCallback
+
+
+def is_retryable_error(error: ErrorDetails | None) -> bool:
+    """Whether a user would retry this failure.
+
+    Server faults (5xx), rate limits (429) and transport failures, which carry
+    no HTTP status, are retried. Other 4xx responses, including context
+    overflow, would fail the same way again, and a cancellation (499) is the
+    benchmark ending the request.
+    """
+    if error is None:
+        return False
+    code = error.code
+    if code is None or code == 0:
+        return error.type != "RequestCancellationError"
+    return code == 429 or code >= 500
+
+
+def mark_incomplete_stream(record: RequestRecord) -> None:
+    """Fail an SSE response that ended without `data: [DONE]`.
+
+    A replica lost mid-answer can end the stream at a chunk boundary without a
+    transport error; the record would otherwise count as a short success.
+    """
+    if record.error is not None or not record.responses:
+        return
+    if not all(isinstance(message, SSEMessage) for message in record.responses):
+        return
+    for message in reversed(record.responses):
+        if any(
+            packet.name == "data" and packet.value == "[DONE]"
+            for packet in message.packets
+        ):
+            return
+    record.error = ErrorDetails(
+        type="IncompleteStreamError",
+        message="SSE stream ended before data: [DONE]",
+    )
 
 
 def detect_transport_from_url(url: str) -> str:
@@ -215,6 +255,10 @@ class InferenceClient(AIPerfLifecycleMixin):
         if self.is_trace_enabled and request_info.turns:
             self.trace(f"Calling inference API for turn: {request_info.turns[-1]}")
         record = await self._send_request_internal(request_info, first_token_callback)
+        if self.model_endpoint.endpoint.retry_failed_requests:
+            record = await self._retry_until_final(
+                record, request_info, first_token_callback
+            )
         # Redact sensitive headers on the request_info now that the transport has
         # consumed them.  This prevents raw credentials from flowing back through
         # ZMQ messages (which are TRACE-logged as serialised JSON / repr).
@@ -222,6 +266,47 @@ class InferenceClient(AIPerfLifecycleMixin):
             redact_headers(request_info.endpoint_headers) or {}
         )
         return self._finalize_request_record(record=record, request_info=request_info)
+
+    async def _retry_until_final(
+        self,
+        record: RequestRecord,
+        request_info: RequestInfo,
+        first_token_callback: FirstTokenCallback | None,
+    ) -> RequestRecord:
+        """Resend a failed request, as a user would, until it succeeds or stops.
+
+        The request keeps its X-Request-ID across attempts, so every attempt's
+        traces and dispatch records belong to one logical request. The returned
+        record starts at the first attempt, so latency and TTFT include failed
+        attempts and waits. Phase cancellation ends the loop by cancelling the
+        task, including during the wait.
+        """
+        endpoint = self.model_endpoint.endpoint
+        first_start_perf_ns = record.start_perf_ns
+        first_timestamp_ns = record.timestamp_ns
+        retried: list[ErrorDetails] = []
+        while True:
+            if endpoint.streaming:
+                mark_incomplete_stream(record)
+            if not is_retryable_error(record.error):
+                break
+            if endpoint.retry_max_attempts and (
+                len(retried) + 1 >= endpoint.retry_max_attempts
+            ):
+                break
+            retried.append(record.error)
+            self.warning(
+                f"Retrying request {request_info.x_request_id} after attempt "
+                f"{len(retried)} failed: {record.error.type} {record.error.code}"
+            )
+            await asyncio.sleep(endpoint.retry_wait_seconds)
+            record = await self._send_request_internal(
+                request_info, first_token_callback
+            )
+        record.retried_errors = retried
+        record.start_perf_ns = first_start_perf_ns
+        record.timestamp_ns = first_timestamp_ns
+        return record
 
     @staticmethod
     def _enrich_request_record(

@@ -374,6 +374,23 @@ Maximum time in seconds to wait for each HTTP request to complete, including con
 <br/>_Constraints: > 0_
 <br/>_Default: `21600`_
 
+#### `--retry-failed-requests`
+
+Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`. The conversation waits for its retried turn, and latency and TTFT are measured from the first attempt. For reliability experiments; leave off for performance measurements.
+<br/>_Flag (no value required)_
+
+#### `--retry-wait-seconds` `<float>`
+
+Seconds to wait before each retry when --retry-failed-requests is set.
+<br/>_Constraints: > 0_
+<br/>_Default: `10.0`_
+
+#### `--retry-max-attempts` `<int>`
+
+Maximum attempts per request including the first when --retry-failed-requests is set (0 = until the request succeeds or the phase cancels it).
+<br/>_Constraints: ≥ 0_
+<br/>_Default: `0`_
+
 #### `--wait-for-model-timeout` `<float>`
 
 Seconds to wait for endpoint readiness before benchmarking (0 = skip). Sends a real inference request to verify the model is loaded and can generate output.
@@ -1930,6 +1947,23 @@ Strategy for selecting URLs when multiple `--url` values are provided. 'round_ro
 Maximum time in seconds to wait for each HTTP request to complete, including connection establishment, request transmission, and response receipt. Applies to both streaming and non-streaming requests. Requests exceeding this timeout are cancelled and recorded as failures.
 <br/>_Constraints: > 0_
 <br/>_Default: `21600`_
+
+#### `--retry-failed-requests`
+
+Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`. The conversation waits for its retried turn, and latency and TTFT are measured from the first attempt. For reliability experiments; leave off for performance measurements.
+<br/>_Flag (no value required)_
+
+#### `--retry-wait-seconds` `<float>`
+
+Seconds to wait before each retry when --retry-failed-requests is set.
+<br/>_Constraints: > 0_
+<br/>_Default: `10.0`_
+
+#### `--retry-max-attempts` `<int>`
+
+Maximum attempts per request including the first when --retry-failed-requests is set (0 = until the request succeeds or the phase cancels it).
+<br/>_Constraints: ≥ 0_
+<br/>_Default: `0`_
 
 #### `--wait-for-model-timeout` `<float>`
 
