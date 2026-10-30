@@ -178,6 +178,12 @@ class MetricRecordMetadata(AIPerfBaseModel):
         default=None,
         description="The X-Correlation-ID header of the request. This is a shared ID for each user session/conversation in multi-turn.",
     )
+    attempt_count: int = Field(
+        default=1,
+        ge=1,
+        description="Attempts made for this request, including retries. Request start, "
+        "latency and TTFT are measured from the first attempt.",
+    )
     conversation_id: str | None = Field(
         default=None,
         description="The ID of the conversation (if applicable). This can be used to lookup the original request data from the inputs.json file.",
@@ -1140,6 +1146,11 @@ class RequestRecord(AIPerfBaseModel):
     error: ErrorDetails | None = Field(
         default=None,
         description="The error details if the request failed.",
+    )
+    retried_errors: list[ErrorDetails] = Field(
+        default_factory=list,
+        description="Errors of earlier attempts that were retried, oldest first. Empty "
+        "when the first attempt was final.",
     )
     context_overflow: bool = Field(
         default=False,

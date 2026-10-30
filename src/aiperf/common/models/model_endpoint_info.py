@@ -108,6 +108,21 @@ class EndpointInfo(AIPerfBaseModel):
         gt=0,
         description="The timeout in seconds for each request to the endpoint.",
     )
+    retry_failed_requests: bool = Field(
+        default=EndpointDefaults.RETRY_FAILED_REQUESTS,
+        description="Retry requests that fail with 5xx, 429, a connection error or an "
+        "incomplete stream.",
+    )
+    retry_wait_seconds: float = Field(
+        default=EndpointDefaults.RETRY_WAIT_SECONDS,
+        gt=0,
+        description="Seconds to wait before each retry.",
+    )
+    retry_max_attempts: int = Field(
+        default=EndpointDefaults.RETRY_MAX_ATTEMPTS,
+        ge=0,
+        description="Maximum attempts per request including the first (0 = no limit).",
+    )
     extra: list[tuple[str, Any]] = Field(
         default=[],
         description="Additional inputs to include with every request. "
@@ -209,6 +224,9 @@ class ModelEndpointInfo(AIPerfBaseModel):
                 headers=list((getattr(ep, "headers", {}) or {}).items()),
                 extra=list((getattr(ep, "extra", {}) or {}).items()),
                 timeout=ep.timeout,
+                retry_failed_requests=ep.retry_failed_requests,
+                retry_wait_seconds=ep.retry_wait_seconds,
+                retry_max_attempts=ep.retry_max_attempts,
                 api_key=ep.api_key,
                 use_legacy_max_tokens=ep.use_legacy_max_tokens,
                 use_server_token_count=ep.use_server_token_count,
