@@ -4,9 +4,12 @@
 
 Failure modes covered: a replica lost before the first token (gateway 503),
 a replica lost mid-stream (stream ends without [DONE]), a non-retryable client
-error, the attempt cap, and retries left off by default.
+error, a client-side exception without an HTTP status, the attempt cap, retries
+left off by default, endpoints that never send [DONE], a second first-token
+report for one request, and the phase cancelling a request during its wait.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -25,14 +28,16 @@ from aiperf.plugin.enums import EndpointType
 from aiperf.workers.inference_client import InferenceClient
 
 
-def make_client(**endpoint_options) -> tuple[InferenceClient, MagicMock]:
+def make_client(
+    endpoint_type=EndpointType.CHAT, **endpoint_options
+) -> tuple[InferenceClient, MagicMock]:
     model_endpoint = ModelEndpointInfo(
         models=ModelListInfo(
             models=[ModelInfo(name="test-model")],
             model_selection_strategy=ModelSelectionStrategy.ROUND_ROBIN,
         ),
         endpoint=EndpointInfo(
-            type=EndpointType.CHAT,
+            type=endpoint_type,
             base_url="http://localhost:8000/v1/test",
             streaming=True,
             **endpoint_options,
@@ -141,6 +146,7 @@ async def test_lost_replica_is_retried_and_measured_from_the_first_attempt(no_wa
         pytest.param({"retry_failed_requests": True, "retry_max_attempts": 2}, [failed(1, 503, "x"), failed(2, None, "ClientPayloadError")], 2, id="cap"),
         pytest.param({}, [failed(1, 503, "x")], 1, id="off_by_default"),
         pytest.param({}, [streamed(1, done=False)], 1, id="off_keeps_short_streams"),
+        pytest.param({"retry_failed_requests": True}, [failed(1, None, "ValueError")], 1, id="client_bug_without_status"),
     ],
 )  # fmt: skip
 async def test_requests_that_must_not_be_retried(no_wait, options, responses, attempts):
@@ -149,3 +155,49 @@ async def test_requests_that_must_not_be_retried(no_wait, options, responses, at
     record = await client.send_request(request_info(client))
     assert transport.send_request.await_count == attempts
     assert len(record.retried_errors) == attempts - 1
+
+
+@pytest.mark.asyncio
+async def test_endpoints_without_done_marker_keep_their_complete_streams(no_wait):
+    client, transport = make_client(EndpointType.RESPONSES, retry_failed_requests=True)
+    transport.send_request = AsyncMock(side_effect=[streamed(1, done=False)])
+    record = await client.send_request(request_info(client))
+    assert record.error is None and transport.send_request.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_first_token_is_reported_once_across_attempts(no_wait):
+    client, transport = make_client(retry_failed_requests=True)
+    reported = AsyncMock(return_value=True)
+
+    async def attempt(info, payload, first_token_callback=None):
+        message = SSEMessage(
+            perf_ns=1, packets=[SSEField(name="data", value='{"x":1}')]
+        )
+        if first_token_callback is not None:
+            await first_token_callback(1, message)
+        return streamed(1, done=transport.send_request.await_count > 1)
+
+    transport.send_request = AsyncMock(side_effect=attempt)
+    record = await client.send_request(
+        request_info(client), first_token_callback=reported
+    )
+    assert record.error is None and transport.send_request.await_count == 2
+    assert reported.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_phase_cancellation_during_the_wait_ends_the_request():
+    client, transport = make_client(retry_failed_requests=True)
+    transport.send_request = AsyncMock(
+        side_effect=[failed(1, 503, "Service Unavailable")]
+    )
+    with (
+        patch(
+            "aiperf.workers.inference_client.asyncio.sleep",
+            new=AsyncMock(side_effect=asyncio.CancelledError),
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await client.send_request(request_info(client))
+    assert transport.send_request.await_count == 1

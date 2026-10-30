@@ -29,19 +29,43 @@ if TYPE_CHECKING:
     from aiperf.transports.base_transports import FirstTokenCallback
 
 
+# Failures without an HTTP status that a lost or restarting replica causes. Any
+# other exception without a status (a payload or client bug) would fail the same
+# way on every attempt, so it is not retried.
+TRANSPORT_ERROR_TYPES: frozenset[str] = frozenset(
+    {
+        "ClientConnectionError",
+        "ClientConnectorError",
+        "ClientOSError",
+        "ClientPayloadError",
+        "ConnectionRefusedError",
+        "ConnectionResetError",
+        "ContentLengthError",
+        "IncompleteStreamError",
+        "ServerDisconnectedError",
+        "ServerTimeoutError",
+        "TimeoutError",
+        "TransferEncodingError",
+    }
+)
+
+# Endpoints whose SSE streams end with `data: [DONE]` (OpenAI chat and
+# completions); a stream from these that stops before it was cut short.
+DONE_TERMINATED_ENDPOINTS: frozenset[str] = frozenset({"chat", "completions"})
+
+
 def is_retryable_error(error: ErrorDetails | None) -> bool:
     """Whether a user would retry this failure.
 
-    Server faults (5xx), rate limits (429) and transport failures, which carry
-    no HTTP status, are retried. Other 4xx responses, including context
-    overflow, would fail the same way again, and a cancellation (499) is the
-    benchmark ending the request.
+    Server faults (5xx), rate limits (429) and transport failures are retried.
+    Other 4xx responses, including context overflow, would fail the same way
+    again; a cancellation (499) is the benchmark ending the request.
     """
     if error is None:
         return False
     code = error.code
     if code is None or code == 0:
-        return error.type != "RequestCancellationError"
+        return error.type in TRANSPORT_ERROR_TYPES
     return code == 429 or code >= 500
 
 
@@ -65,6 +89,29 @@ def mark_incomplete_stream(record: RequestRecord) -> None:
         type="IncompleteStreamError",
         message="SSE stream ended before data: [DONE]",
     )
+
+
+def _once(
+    callback: FirstTokenCallback | None, first: RequestRecord
+) -> FirstTokenCallback | None:
+    """Report a request's first token once across its attempts.
+
+    The worker's callback tells the router a prefill finished. A stream cut after
+    its first token and then retried must not report a second one, so later
+    attempts skip the callback once any attempt, including the first, reported it.
+    """
+    if callback is None:
+        return None
+    reported = any(isinstance(message, SSEMessage) for message in first.responses)
+
+    async def wrapper(ttft_ns: int, message: SSEMessage) -> bool:
+        nonlocal reported
+        if reported:
+            return True
+        reported = await callback(ttft_ns, message)
+        return reported
+
+    return wrapper
 
 
 def detect_transport_from_url(url: str) -> str:
@@ -282,11 +329,12 @@ class InferenceClient(AIPerfLifecycleMixin):
         task, including during the wait.
         """
         endpoint = self.model_endpoint.endpoint
+        first_token_callback = _once(first_token_callback, record)
         first_start_perf_ns = record.start_perf_ns
         first_timestamp_ns = record.timestamp_ns
         retried: list[ErrorDetails] = []
         while True:
-            if endpoint.streaming:
+            if endpoint.streaming and str(endpoint.type) in DONE_TERMINATED_ENDPOINTS:
                 mark_incomplete_stream(record)
             if not is_retryable_error(record.error):
                 break
