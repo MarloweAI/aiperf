@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import aiohttp
 import pytest
 
-from aiperf.common.models import SSEField, SSEMessage
+from aiperf.common.models import AioHttpTraceData, SSEField, SSEMessage
 from aiperf.transports.aiohttp_client import AioHttpClient
 from aiperf.transports.sse_utils import AsyncSSEStreamReader
 from tests.unit.transports.conftest import (
@@ -211,6 +211,164 @@ class TestAioHttpClient:
                 expected_error_type=reason,
                 expected_error_message=error_text,
             )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("echo_form", ["raw", "json", "slash"])
+    async def test_authenticated_http_error_redacts_echoed_key(
+        self, aiohttp_client: AioHttpClient, echo_form: str
+    ) -> None:
+        key = 'sai-canary-"\\-/123'
+        escaped = json.dumps(key)[1:-1]
+        echo = {
+            "raw": key,
+            "json": escaped,
+            "slash": escaped.replace("/", "\\/"),
+        }[echo_form]
+        body = f'{{"error":{{"message":"context length exceeded: {echo}"}}}}'
+        trace_data = AioHttpTraceData(
+            response_reason=f"Denied {key}",
+            response_headers={f"x-echo-{key}": f"server echoed {key}"},
+        )
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            response = create_mock_error_response(401, f"Denied {key}", body)
+            setup_mock_session(mock_session_class, response, ["request"])
+
+            record = await aiohttp_client._request(
+                "POST",
+                "http://test.com",
+                {"Authorization": f"Bearer {key}"},
+                data=b"{}",
+                trace_data=trace_data,
+            )
+
+        assert record.status == 401
+        assert record.error is not None
+        assert record.error.code == 401
+        assert "context length exceeded" in record.error.message
+        assert key not in record.error.message + (record.error.type or "")
+        assert echo not in record.error.message + (record.error.type or "")
+        assert record.trace_data.response_reason == "Denied <redacted>"
+        assert record.trace_data.response_headers == {
+            "x-echo-<redacted>": "server echoed <redacted>"
+        }
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("slash_escape", [False, True])
+    async def test_authenticated_sse_error_redacts_composed_escaping(
+        self,
+        aiohttp_client: AioHttpClient,
+        caplog: pytest.LogCaptureFixture,
+        slash_escape: bool,
+    ) -> None:
+        key = 'sai-canary-"\\-/123'
+        escaped = json.dumps(key)[1:-1]
+        if slash_escape:
+            escaped = escaped.replace("/", "\\/")
+        response = create_mock_response(content_type="text/event-stream")
+        response.content = MockStreamReader(
+            [f'event: error\ndata: {{"message":"{escaped}"}}\n\n'.encode()]
+        )
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            setup_mock_session(mock_session_class, response, ["request"])
+            record = await aiohttp_client.post_request(
+                "http://test.com", b"{}", {"Authorization": f"Bearer {key}"}
+            )
+
+        assert record.error is not None
+        saved = record.model_dump_json() + caplog.text
+        assert "<redacted>" in saved
+        assert key not in saved
+        assert escaped not in saved
+        assert repr(escaped)[1:-1] not in saved
+
+    @pytest.mark.asyncio
+    async def test_authenticated_success_discards_echoed_key_from_record(
+        self, aiohttp_client: AioHttpClient
+    ) -> None:
+        key = 'sai-canary-"\\-/123'
+        response = create_mock_response(
+            content_type=f"text/x-{key}", text_content=f'{{"echo":"{key}"}}'
+        )
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            setup_mock_session(mock_session_class, response, ["request"])
+            record = await aiohttp_client.post_request(
+                "http://test.com", b"{}", {"Authorization": f"Bearer {key}"}
+            )
+        assert record.error is None
+        assert "<redacted>" in record.model_dump_json()
+        assert key not in record.model_dump_json()
+
+    @pytest.mark.asyncio
+    async def test_authenticated_binary_content_type_redacts_echoed_key(
+        self, aiohttp_client: AioHttpClient
+    ) -> None:
+        key = "sai-canary-binary-123"
+        response = create_mock_response(content_type=f"image/x-{key}")
+        response.read = AsyncMock(return_value=b"binary")
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            setup_mock_session(mock_session_class, response, ["request"])
+            record = await aiohttp_client.post_request(
+                "http://test.com", b"{}", {"Authorization": f"Bearer {key}"}
+            )
+        assert record.error is None
+        assert "<redacted>" in record.model_dump_json()
+        assert key not in record.model_dump_json()
+
+    @pytest.mark.asyncio
+    async def test_authenticated_exception_redacts_echoed_key(
+        self, aiohttp_client: AioHttpClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        key = 'sai-canary-"\\-123'
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            mock_session_class.side_effect = ValueError(f"server echoed {key}")
+            record = await aiohttp_client.post_request(
+                "http://test.com", b"{}", {"Authorization": f"Bearer {key}"}
+            )
+
+        assert record.error is not None
+        assert record.error.type == "ValueError"
+        assert "<redacted>" in record.error.message
+        assert key not in record.error.message + caplog.text
+        assert repr(key)[1:-1] not in record.error.message + caplog.text
+
+    @pytest.mark.asyncio
+    async def test_authenticated_cancellation_redacts_response_trace(
+        self, aiohttp_client: AioHttpClient
+    ) -> None:
+        key = 'sai-canary-"\\-123'
+        trace_data = AioHttpTraceData(
+            response_reason=f"Denied {key}",
+            response_headers={f"x-echo-{key}": f"server echoed {key}"},
+        )
+        response_started = asyncio.Event()
+
+        async def hanging_stream():
+            response_started.set()
+            await asyncio.Event().wait()
+            yield b""
+
+        response = create_mock_response(content_type="text/event-stream")
+        response.content.iter_any = hanging_stream
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            setup_mock_session(mock_session_class, response, ["request"])
+            request = asyncio.create_task(
+                aiohttp_client._request(
+                    "POST",
+                    "http://test.com",
+                    {"Authorization": f"Bearer {key}"},
+                    data=b"{}",
+                    trace_data=trace_data,
+                )
+            )
+            await asyncio.wait_for(response_started.wait(), timeout=1)
+            request.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await request
+
+        assert trace_data.response_reason == "Denied <redacted>"
+        assert trace_data.response_headers == {
+            "x-echo-<redacted>": "server echoed <redacted>"
+        }
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
