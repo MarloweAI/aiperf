@@ -3,7 +3,7 @@
 
 
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 
 from aiperf.common.aiperf_logger import AIPerfLogger
 from aiperf.common.exceptions import SSEResponseError
@@ -69,8 +69,13 @@ class AsyncSSEStreamReader:
         - Per-message timestamps enable accurate token-level timing
     """
 
-    def __init__(self, async_iter: AsyncIterator[bytes]):
+    def __init__(
+        self,
+        async_iter: AsyncIterator[bytes],
+        redact: Callable[[str], str] | None = None,
+    ):
         self._async_iter = async_iter
+        self._redact = redact
 
     async def read_complete_stream(self) -> list[SSEMessage]:
         """Read the complete SSE stream and return a list of SSE messages."""
@@ -167,6 +172,8 @@ class AsyncSSEStreamReader:
                     .decode("utf-8", errors="replace")
                     .strip()
                 )
+                if self._redact is not None:
+                    raw_message = self._redact(raw_message)
                 consumed = delimiter_index + delimiter_length
                 search_offset = consumed
 
@@ -194,6 +201,8 @@ class AsyncSSEStreamReader:
         if remaining:
             final_perf_ns = time.perf_counter_ns()
             raw_message = remaining.decode("utf-8", errors="replace")
+            if self._redact is not None:
+                raw_message = self._redact(raw_message)
             yield SSEMessage.parse(raw_message, final_perf_ns)
 
             if _logger.is_trace_enabled:

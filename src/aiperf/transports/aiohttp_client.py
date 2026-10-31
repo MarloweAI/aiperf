@@ -4,9 +4,10 @@ import asyncio
 import contextlib
 import socket
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
 
 import aiohttp
+import orjson
 
 from aiperf.common.constants import NANOS_PER_SECOND
 from aiperf.common.environment import Environment
@@ -19,12 +20,61 @@ from aiperf.common.models import (
     RequestRecord,
     TextResponse,
 )
+from aiperf.common.redact import REDACTED_VALUE
 from aiperf.transports.aiohttp_trace import create_aiohttp_trace_config
 from aiperf.transports.http_defaults import AioHttpDefaults, SocketDefaults
 from aiperf.transports.sse_utils import AsyncSSEStreamReader
 
 if TYPE_CHECKING:
     from aiperf.transports.base_transports import FirstTokenCallback
+
+
+def _bearer_key(headers: dict[str, str]) -> str | None:
+    """Return the bearer credential sent with this request, if any."""
+    for name, value in headers.items():
+        if name.lower() == "authorization" and value[:7].lower() == "bearer ":
+            return value[7:] or None
+    return None
+
+
+@overload
+def _redact_auth_echo(value: str, key: str | None) -> str: ...
+
+
+@overload
+def _redact_auth_echo(value: None, key: str | None) -> None: ...
+
+
+def _redact_auth_echo(value: str | None, key: str | None) -> str | None:
+    """Remove a server echo of our credential from response-derived text."""
+    if value is None or key is None:
+        return value
+    # A server can echo a JSON-escaped key, then exception repr adds another
+    # escape layer before the text reaches logs or ErrorDetails.
+    variants = {key}
+    for _ in range(2):
+        variants.update(
+            escaped
+            for value in tuple(variants)
+            for escaped in (orjson.dumps(value).decode()[1:-1], repr(value)[1:-1])
+        )
+    variants.update(value.replace("/", "\\/") for value in tuple(variants))
+    for variant in sorted(variants, key=len, reverse=True):
+        value = value.replace(variant, REDACTED_VALUE)
+    return value
+
+
+def _redact_response_trace(record: RequestRecord, key: str | None) -> None:
+    """Remove echoed credentials from response metadata in exported traces."""
+    if key is None:
+        return
+    trace = record.trace_data
+    trace.response_reason = _redact_auth_echo(trace.response_reason, key)
+    if trace.response_headers is not None:
+        trace.response_headers = {
+            _redact_auth_echo(name, key): _redact_auth_echo(value, key)
+            for name, value in trace.response_headers.items()
+        }
 
 
 def _expected_request_body_size(data: Any) -> int | None:
@@ -116,6 +166,12 @@ class AioHttpClient(AIPerfLoggerMixin):
             start_perf_ns=time.perf_counter_ns(),
             trace_data=trace_data,
         )
+        auth_key = _bearer_key(headers)
+        redact_sse = (
+            (lambda value: _redact_auth_echo(value, auth_key))
+            if auth_key is not None
+            else None
+        )
 
         # Create trace config for comprehensive timing.
         # The trace fires `on_request_sent` once `bytes_sent` reaches this size, so
@@ -166,8 +222,8 @@ class AioHttpClient(AIPerfLoggerMixin):
                         error_text = await response.text()
                         record.error = ErrorDetails(
                             code=response.status,
-                            type=response.reason,
-                            message=error_text,
+                            type=_redact_auth_echo(response.reason, auth_key),
+                            message=_redact_auth_echo(error_text, auth_key),
                         )
                         return record
 
@@ -212,7 +268,7 @@ class AioHttpClient(AIPerfLoggerMixin):
                         if first_token_callback:
                             first_token_acquired = False
                             async for message in AsyncSSEStreamReader(
-                                tracked_content_stream()
+                                tracked_content_stream(), redact=redact_sse
                             ):
                                 AsyncSSEStreamReader.inspect_message_for_error(message)
                                 record.responses.append(message)
@@ -225,7 +281,7 @@ class AioHttpClient(AIPerfLoggerMixin):
                         else:
                             # Fast path: no callback, just collect responses
                             async for message in AsyncSSEStreamReader(
-                                tracked_content_stream()
+                                tracked_content_stream(), redact=redact_sse
                             ):
                                 AsyncSSEStreamReader.inspect_message_for_error(message)
                                 record.responses.append(message)
@@ -249,17 +305,22 @@ class AioHttpClient(AIPerfLoggerMixin):
                             record.responses.append(
                                 BinaryResponse(
                                     perf_ns=record.end_perf_ns,
-                                    content_type=content_type,
+                                    content_type=_redact_auth_echo(
+                                        content_type, auth_key
+                                    ),
                                     raw_bytes=raw_bytes,
                                 )
                             )
                         else:
                             raw_response = await response.text()
+                            raw_response = _redact_auth_echo(raw_response, auth_key)
                             record.end_perf_ns = time.perf_counter_ns()
                             record.responses.append(
                                 TextResponse(
                                     perf_ns=record.end_perf_ns,
-                                    content_type=content_type,
+                                    content_type=_redact_auth_echo(
+                                        content_type, auth_key
+                                    ),
                                     text=raw_response,
                                 )
                             )
@@ -281,7 +342,7 @@ class AioHttpClient(AIPerfLoggerMixin):
                     )
         except SSEResponseError as e:
             record.end_perf_ns = time.perf_counter_ns()
-            self.error(f"Error in SSE response: {e!r}")
+            self.error(_redact_auth_echo(f"Error in SSE response: {e!r}", auth_key))
             record.error = ErrorDetails.from_exception(e)
         except asyncio.CancelledError:
             # Task was cancelled externally (e.g., credit cancellation from router)
@@ -297,8 +358,16 @@ class AioHttpClient(AIPerfLoggerMixin):
             raise
         except Exception as e:
             record.end_perf_ns = time.perf_counter_ns()
-            self.error(f"Error in aiohttp request: {e!r}")
+            self.error(_redact_auth_echo(f"Error in aiohttp request: {e!r}", auth_key))
             record.error = ErrorDetails.from_exception(e)
+        finally:
+            # Cancellation re-raises before the normal return, but its caller
+            # still exports this shared trace object.
+            _redact_response_trace(record, auth_key)
+
+        if auth_key is not None and record.error is not None:
+            record.error.message = _redact_auth_echo(record.error.message, auth_key)
+            record.error.cause = _redact_auth_echo(record.error.cause, auth_key)
 
         return record
 

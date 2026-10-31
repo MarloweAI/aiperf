@@ -128,6 +128,10 @@ Log File: /home/user/Code/aiperf/artifacts/granite4:350m-openai-chat-concurrency
 - OpenAI chat completions, completions, embeddings, audio, images
 - NIM embeddings, rankings
 
+For authenticated requests, HTTP error records and response trace metadata
+redact direct or JSON-escaped echoes of the Bearer key. Raw exports can still
+contain model output and other sensitive response data; store them accordingly.
+
 ## Tutorials and Feature Guides
 
 ### Getting Started
