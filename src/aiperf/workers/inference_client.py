@@ -338,6 +338,10 @@ class InferenceClient(AIPerfLifecycleMixin):
                 f"conversation_id={request_info.conversation_id})"
             )
         endpoint = self.model_endpoint.endpoint
+        retries_enabled: bool = endpoint.retry_failed_requests or (
+            endpoint.retry_failed_warmup_requests
+            and request_info.credit_phase == CreditPhase.WARMUP
+        )
         callback = _once(first_token_callback)
         attempt: int = 0
         while True:
@@ -376,7 +380,7 @@ class InferenceClient(AIPerfLifecycleMixin):
             if cancelled:
                 raise asyncio.CancelledError
             if (
-                not endpoint.retry_failed_requests
+                not retries_enabled
                 or not is_retryable_error(record.error)
                 or (
                     endpoint.retry_max_attempts

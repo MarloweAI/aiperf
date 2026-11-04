@@ -243,6 +243,17 @@ class CLIConfig(BaseConfig):
         ),
     ] = EndpointDefaults.RETRY_FAILED_REQUESTS
 
+    retry_failed_warmup_requests: Annotated[
+        bool,
+        Field(
+            description="Retry only warmup requests, with the same rules, wait and attempt cap as --retry-failed-requests. A router that refuses the warmup burst (429 or 503) then delays the warmup instead of failing it, while profiling requests stay first attempts. Has no effect when --retry-failed-requests is set.",
+        ),
+        CLIParameter(
+            name=("--retry-failed-warmup-requests",),
+            group=Groups.ENDPOINT,
+        ),
+    ] = EndpointDefaults.RETRY_FAILED_WARMUP_REQUESTS
+
     retry_wait_seconds: Annotated[
         float,
         Field(
