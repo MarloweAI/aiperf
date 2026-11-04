@@ -63,6 +63,7 @@ _ENDPOINT_FIELD_MAP: dict[str, str] = {
     "api_key": "api_key",
     "timeout_seconds": "timeout",
     "retry_failed_requests": "retry_failed_requests",
+    "retry_failed_warmup_requests": "retry_failed_warmup_requests",
     "retry_wait_seconds": "retry_wait_seconds",
     "retry_max_attempts": "retry_max_attempts",
     "wait_for_model_timeout": "wait_for_model_timeout",

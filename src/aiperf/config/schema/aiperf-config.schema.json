@@ -13037,6 +13037,12 @@
           "title": "Retryfailedrequests",
           "type": "boolean"
         },
+        "retryFailedWarmupRequests": {
+          "default": false,
+          "description": "Retry only warmup requests, with the same rules, wait and attempt cap as --retry-failed-requests. A router that refuses the warmup burst (429 or 503) then delays the warmup instead of failing it, while profiling requests stay first attempts. Has no effect when --retry-failed-requests is set.",
+          "title": "Retryfailedwarmuprequests",
+          "type": "boolean"
+        },
         "retryWaitSeconds": {
           "default": 10.0,
           "description": "Seconds to wait before each retry when retries are enabled.",

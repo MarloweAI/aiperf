@@ -24,6 +24,7 @@ ENDPOINT_FIELDS: frozenset[str] = frozenset(
         "model_selection_strategy",
         "request_content_type",
         "retry_failed_requests",
+        "retry_failed_warmup_requests",
         "retry_max_attempts",
         "retry_wait_seconds",
         "session_header",
