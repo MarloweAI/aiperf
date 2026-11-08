@@ -1464,15 +1464,21 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             if not self.stop_checker.can_start_new_session():
                 return
             arrival.fired_ns = time.time_ns()
-            arrival.ceiling_full = (
-                not self.credit_issuer.can_acquire_and_start_new_session()
-            )
             self.scheduler.execute_async(
                 self._start_session_arrival(arrival, first_lane + arrival.index)
             )
 
     async def _start_session_arrival(self, arrival: SessionArrival, lane: int) -> None:
-        """Start one arrival's turn-0 session and record when it was issued."""
+        """Start one arrival's turn-0 session and record when it was issued.
+
+        The ceiling check runs here, not in the arrival loop: nothing between
+        it and the session-slot acquire inside ``issue_credit`` suspends, so it
+        sees exactly the slots earlier arrivals left, even for arrivals the
+        loop released together.
+        """
+        arrival.ceiling_full = (
+            not self.credit_issuer.can_acquire_and_start_new_session()
+        )
         session, started = await self._start_root_on_lane(lane)
         arrival.issued_ns = time.time_ns()
         arrival.started = started

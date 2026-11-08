@@ -22,7 +22,7 @@ from aiperf.common.enums import CacheBustTarget, CreditPhase
 from aiperf.common.loop_scheduler import LoopScheduler
 from aiperf.config.phases import SessionArrivalsConfig
 from aiperf.credit.structs import TurnToSend
-from aiperf.timing.session_arrivals import SESSION_ARRIVALS_FILE
+from aiperf.timing.session_arrivals import SESSION_ARRIVALS_FILE, SessionArrival
 from aiperf.timing.trajectory_source import Trajectory
 from tests.unit.conftest import _REAL_SLEEP
 from tests.unit.timing.strategies.test_agentic_replay import (
@@ -225,3 +225,35 @@ async def test_open_loop_finalize_writes_the_journal(tmp_path) -> None:
     assert journal["summary"]["scheduled"] == len(strategy._session_arrivals)
     assert journal["summary"]["started"] == journal["summary"]["scheduled"]
     assert journal["summary"]["held_back"] is False
+
+
+@pytest.mark.asyncio
+async def test_open_loop_arrivals_released_together_each_see_the_slots_left() -> None:
+    """Arrivals due at once (a gamma burst, or a loop behind schedule) are
+    released without a yield between them. Each must be checked against the
+    slots the earlier ones took, not the slots free when the burst began."""
+    free = {"slots": 1}
+    blocked = asyncio.Event()
+
+    async def capture(turn: TurnToSend) -> bool:
+        if turn.turn_index == 0:  # arrivals; warmed lanes resume past turn 0
+            if free["slots"] == 0:
+                await blocked.wait()
+            else:
+                free["slots"] -= 1
+        return True
+
+    issuer = _issuer(capture)
+    issuer.can_acquire_and_start_new_session.side_effect = lambda: free["slots"] > 0
+    strategy, _, _ = _open_loop_strategy(issuer)
+    strategy._session_arrivals = [
+        SessionArrival(index=index, scheduled_offset_sec=0.0) for index in range(3)
+    ]
+    await strategy.setup_phase()
+    await strategy.execute_phase()
+    await strategy._session_arrival_task
+    await _drain()
+
+    assert [a.ceiling_full for a in strategy._session_arrivals] == [False, True, True]
+    blocked.set()
+    await _drain()
