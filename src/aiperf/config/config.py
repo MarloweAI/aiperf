@@ -740,9 +740,6 @@ class BenchmarkConfig(BaseConfig, BenchmarkHelpersMixin):
         builder uses (explicit ``timing_mode`` override, else the phase-type
         mapping) and reject the flag when nothing resolves to AGENTIC_REPLAY.
         """
-        from aiperf.plugin.enums import TimingMode
-        from aiperf.timing.config import _is_agentic_replay
-
         profiling_phases = self.get_profiling_phases()
         has_duration = any(
             getattr(phase, "agentic_cache_warmup_duration", None) is not None
@@ -765,25 +762,65 @@ class BenchmarkConfig(BaseConfig, BenchmarkHelpersMixin):
                 "--agentic-cache-warmup-duration are mutually exclusive."
             )
 
+        self._require_agentic_replay("agentic cache warmup")
+        return self
+
+    @model_validator(mode="after")
+    def validate_session_arrivals(self) -> Self:
+        """Check open-loop session arrivals before the run starts: they need the
+        agentic_replay timing mode, a profiling duration to schedule over, and a
+        session ceiling no lower than the warmed lanes they start from."""
+        configured = False
+        for phase in self.get_profiling_phases():
+            arrivals = getattr(phase, "session_arrivals", None)
+            if arrivals is None:
+                continue
+            configured = True
+            if getattr(phase, "duration", None) is None:
+                raise ValueError(
+                    "--session-arrival-rate needs --benchmark-duration: arrivals "
+                    "are scheduled over the profiling duration."
+                )
+            concurrency = getattr(phase, "concurrency", None)
+            if isinstance(concurrency, int) and arrivals.ceiling < concurrency:
+                raise ValueError(
+                    f"--session-concurrency-ceiling {arrivals.ceiling} is below "
+                    f"--concurrency {concurrency}, the warmed sessions the open "
+                    "loop starts from."
+                )
+        if configured:
+            self._require_agentic_replay("open-loop session arrivals")
+        return self
+
+    def _require_agentic_replay(self, feature: str) -> None:
+        """Reject an agentic_replay-only feature on any other timing mode.
+
+        A scenario governs the timing_mode: ``apply_scenario`` stamps it onto
+        the profiling phases after construction, so the scenario's declared
+        mode is read from its :class:`ScenarioSpec`. Without a scenario the
+        phases are final and resolve the way the timing builder resolves them.
+        """
+        from aiperf.plugin.enums import TimingMode
+        from aiperf.timing.config import _is_agentic_replay
+
         if self.scenario is not None:
             from aiperf.common.scenario.registry import get_scenario
 
             scenario_timing_mode = get_scenario(self.scenario).timing_mode
             if scenario_timing_mode != TimingMode.AGENTIC_REPLAY:
                 raise ValueError(
-                    "agentic cache warmup requires the agentic_replay "
+                    f"{feature} requires the agentic_replay "
                     f"timing mode; scenario {self.scenario!r} locks "
                     f"timing_mode={scenario_timing_mode}."
                 )
-            return self
+            return
 
-        if not _is_agentic_replay(profiling_phases):
+        if not _is_agentic_replay(self.get_profiling_phases()):
             raise ValueError(
-                "agentic cache warmup requires the agentic_replay "
+                f"{feature} requires the agentic_replay "
                 "timing mode (set today by --scenario inferencex-agentx-mvp); "
                 "the profiling phase(s) are not agentic_replay."
             )
-        return self
 
 
 class AIPerfConfig(BaseConfig):

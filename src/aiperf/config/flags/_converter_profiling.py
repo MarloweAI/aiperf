@@ -59,6 +59,35 @@ _AGENTIC_REPLAY_ROUTES: tuple[str, ...] = (
 )
 
 
+# Flat session-arrival flags and their keys in the profiling phase's
+# ``session_arrivals`` block.
+_SESSION_ARRIVAL_ROUTES: tuple[tuple[str, str], ...] = (
+    ("session_arrival_rate", "rate"),
+    ("session_arrival_pattern", "pattern"),
+    ("session_arrival_cv", "cv"),
+    ("session_concurrency_ceiling", "ceiling"),
+)
+
+
+def _apply_session_arrival_fields(phase: dict[str, Any], cli: CLIConfig) -> None:
+    """Fold explicitly-set session-arrival flags into the profiling phase's
+    ``session_arrivals`` block."""
+    fields_set = cli.model_fields_set
+    block = {
+        key: getattr(cli, attr)
+        for attr, key in _SESSION_ARRIVAL_ROUTES
+        if attr in fields_set and getattr(cli, attr) is not None
+    }
+    if not block:
+        return
+    if "rate" not in block:
+        raise ValueError(
+            "--session-arrival-pattern, --session-arrival-cv and "
+            "--session-concurrency-ceiling need --session-arrival-rate"
+        )
+    phase["session_arrivals"] = block
+
+
 def _apply_agentic_replay_fields(phase: dict[str, Any], cli: CLIConfig) -> None:
     """Copy explicitly-set AGENTIC_REPLAY phase fields onto a phase dict.
 
@@ -469,6 +498,7 @@ def build_profiling(cli: CLIConfig) -> dict[str, Any]:
 
     _apply_profiling_ramps(prof, cli)
     _apply_agentic_replay_fields(prof, cli)
+    _apply_session_arrival_fields(prof, cli)
     _apply_profiling_rate_series(prof, cli)
 
     prof["type"] = _profiling_phase_type(cli)

@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import pathlib
 
+import pytest
+
 from aiperf.config.flags import CLIConfig
 from aiperf.config.flags.resolver import resolve_config
 
@@ -142,3 +144,40 @@ def test_agentic_warmup_does_not_clobber_warmup_phase(
     for phase in cfg.benchmark.phases:
         if phase.name == "warmup":
             assert getattr(phase, "agentic_cache_warmup_duration", None) is None
+
+
+def test_session_arrival_flags_reach_the_profiling_phase(
+    tmp_path: pathlib.Path,
+) -> None:
+    path = tmp_path / "agentic_duration.yaml"
+    path.write_text(_AGENTIC_PROFILING_YAML.replace("requests: 100", "duration: 900"))
+    cfg = resolve_config(
+        _cli(
+            session_arrival_rate=0.05,
+            session_arrival_pattern="gamma",
+            session_arrival_cv=2.0,
+            session_concurrency_ceiling=4096,
+        ),
+        path,
+    )
+    arrivals = _profiling_phase(cfg).session_arrivals
+    assert (arrivals.rate, arrivals.pattern, arrivals.cv, arrivals.ceiling) == (
+        0.05,
+        "gamma",
+        2.0,
+        4096,
+    )
+    assert all(
+        getattr(phase, "session_arrivals", None) is None
+        for phase in cfg.benchmark.phases
+        if phase.name != "profiling"
+    )
+
+
+def test_session_arrival_flags_without_a_rate_are_refused(
+    tmp_path: pathlib.Path,
+) -> None:
+    path = tmp_path / "agentic_duration.yaml"
+    path.write_text(_AGENTIC_PROFILING_YAML.replace("requests: 100", "duration: 900"))
+    with pytest.raises(ValueError, match="need --session-arrival-rate"):
+        resolve_config(_cli(session_arrival_cv=2.0), path)

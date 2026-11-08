@@ -53,6 +53,15 @@ its lane recycles: a fresh session (starting at turn 0) is spawned from the
 next root drawn from the shared dataset sampler
 (``TrajectorySource.next_recycle_conversation_id``), honoring the configured
 ``sampling_strategy`` -- there is no strategy-side FIFO recycle queue.
+
+OPEN LOOP (the profiling phase's ``session_arrivals``): the warmed lanes are the session
+population at profiling start, and a drained lane is not recycled. Fresh
+turn-0 sessions instead start on a fixed arrival schedule
+(``aiperf.timing.session_arrivals``), each on a new lane, while the session
+limit is raised to its ``ceiling``. Turns inside a session
+keep the same dependency and gap rules. The global system-idle cap still
+shortens in-session timers when nothing is in flight; it never moves an
+arrival, which is the offered load.
 """
 
 from __future__ import annotations
@@ -61,8 +70,10 @@ import asyncio
 import time
 import uuid
 from collections import Counter, deque
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+import orjson
 from msgspec.structs import replace as _struct_replace
 
 from aiperf.common.constants import MILLIS_PER_SECOND
@@ -71,10 +82,17 @@ from aiperf.common.environment import Environment
 from aiperf.common.mixins import AIPerfLoggerMixin
 from aiperf.common.scenario.base import TrajectoryWarmupFailedError
 from aiperf.common.scenario.context_overflow import is_context_overflow_response
+from aiperf.config.phases import SessionArrivalsConfig
 from aiperf.credit.dispatch import ChildDispatchResult, TurnAdmission
 from aiperf.credit.structs import TurnToSend
 from aiperf.timing.conversation_source import SampledSession
 from aiperf.timing.replay_dependencies import ReplayResumeBoundary
+from aiperf.timing.session_arrivals import (
+    SESSION_ARRIVALS_FILE,
+    SessionArrival,
+    build_arrival_offsets,
+    session_arrival_journal,
+)
 from aiperf.timing.trajectory_source import (
     ConversationState,
     Trajectory,
@@ -257,6 +275,31 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         )
         self._system_idle_jump_count = 0
         self._system_idle_seconds_skipped = 0.0
+
+        # Open-loop session arrivals (PROFILING only). The schedule is fixed
+        # here, before the phase starts, so it is the same for every run with
+        # the same seed whatever the server does.
+        arrivals = getattr(profiling_phase, "session_arrivals", None)
+        self._session_arrival_config: SessionArrivalsConfig | None = (
+            arrivals
+            if config.phase == CreditPhase.PROFILING
+            and isinstance(arrivals, SessionArrivalsConfig)
+            else None
+        )
+        self._session_arrival_duration: float | None = None
+        self._session_arrivals: list[SessionArrival] = []
+        self._session_arrival_start_ns: int | None = None
+        self._session_arrival_task: asyncio.Task | None = None
+        if self._session_arrival_config is not None:
+            self._session_arrival_duration = float(profiling_phase.duration)
+            self._session_arrivals = [
+                SessionArrival(index=index, scheduled_offset_sec=offset)
+                for index, offset in enumerate(
+                    build_arrival_offsets(
+                        self._session_arrival_config, self._session_arrival_duration
+                    )
+                )
+            ]
         self._system_idle_started_at: float | None = None
         self._system_idle_watchdog: asyncio.TimerHandle | None = None
 
@@ -417,6 +460,19 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         ):
             self.credit_issuer.set_turn_admission(self._admit_cache_warmup_turn)
         if self.config.phase == CreditPhase.PROFILING:
+            if self._session_arrival_config is not None:
+                self.credit_issuer.set_session_limit(
+                    self._session_arrival_config.ceiling
+                )
+                self.info(
+                    f"PROFILING open loop: {len(self._session_arrivals)} session "
+                    f"arrivals scheduled over {self._session_arrival_duration:g}s "
+                    f"({self._session_arrival_config.pattern}, "
+                    f"{self._session_arrival_config.rate:g}/s, "
+                    f"CV {self._session_arrival_config.effective_cv:g}); session ceiling "
+                    f"{self._session_arrival_config.ceiling}; drained lanes do not "
+                    "recycle"
+                )
             for trajectory in self.conversation_source.trajectories:
                 self._seed_trajectory_replay_prefix(trajectory)
             self.credit_issuer.replay_gate.activate()
@@ -975,7 +1031,10 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             await self.branch_orchestrator.on_child_stopped(turn.x_correlation_id)
 
     async def finalize_phase(self) -> None:
-        """Persist the drained accelerated-warmup DAG for profiling."""
+        """Persist the drained accelerated-warmup DAG for profiling, and an
+        open-loop phase's session arrival journal."""
+        if self._session_arrival_config is not None:
+            await self._write_session_arrival_journal()
         if self._system_idle_gap_cap_seconds is not None:
             self._cancel_system_idle_watchdog()
             self.scheduler.set_drain_observer(None)
@@ -1381,6 +1440,69 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                 first_error = result
         if first_error is not None:
             raise first_error
+        if self._session_arrival_config is not None:
+            self._session_arrival_task = self.scheduler.execute_async(
+                self._run_session_arrivals()
+            )
+
+    async def _run_session_arrivals(self) -> None:
+        """Release each scheduled arrival at its time, until the phase stops
+        starting sessions.
+
+        Each arrival starts in its own task, so one waiting for a session slot
+        never delays the arrivals after it. The loop sleeps instead of using
+        scheduler timers, which the global system-idle cap would pull forward.
+        """
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        self._session_arrival_start_ns = time.time_ns()
+        first_lane = len(self.conversation_source.trajectories)
+        for arrival in self._session_arrivals:
+            delay = start + arrival.scheduled_offset_sec - loop.time()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            if not self.stop_checker.can_start_new_session():
+                return
+            arrival.fired_ns = time.time_ns()
+            arrival.ceiling_full = (
+                not self.credit_issuer.can_acquire_and_start_new_session()
+            )
+            self.scheduler.execute_async(
+                self._start_session_arrival(arrival, first_lane + arrival.index)
+            )
+
+    async def _start_session_arrival(self, arrival: SessionArrival, lane: int) -> None:
+        """Start one arrival's turn-0 session and record when it was issued."""
+        session, started = await self._start_root_on_lane(lane)
+        arrival.issued_ns = time.time_ns()
+        arrival.started = started
+        if session is not None:
+            arrival.conversation_id = session.conversation_id
+            arrival.x_correlation_id = session.x_correlation_id
+
+    async def _write_session_arrival_journal(self) -> None:
+        """Write ``session_arrivals.json`` beside the phase's other exports."""
+        journal = session_arrival_journal(
+            self._session_arrival_config,
+            self._session_arrivals,
+            initial_sessions=len(self.conversation_source.trajectories),
+            start_ns=self._session_arrival_start_ns,
+            duration_sec=self._session_arrival_duration,
+        )
+        summary = journal["summary"]
+        self.info(
+            f"PROFILING open loop: {summary['started']} of {summary['scheduled']} "
+            f"scheduled sessions started; {summary['ceiling_waits']} waited for the "
+            f"session ceiling; start lag p99 {summary['start_lag_ms']['p99']} ms"
+        )
+        artifact_dir = self.config.artifact_dir
+        if not isinstance(artifact_dir, Path):
+            self.warning("No artifact directory: session arrival journal not written")
+            return
+        path = artifact_dir / SESSION_ARRIVALS_FILE
+        await asyncio.to_thread(
+            path.write_bytes, orjson.dumps(journal, option=orjson.OPT_INDENT_2)
+        )
 
     def _profiling_spread_seconds(self) -> float:
         """Window over which each trajectory's FIRST request fires, in seconds.
@@ -1638,18 +1760,28 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         first real root). The recycled session restarts at turn 0 with a fresh
         x_correlation_id and a freshly minted cache-bust marker (nothing
         warmed). No-op during cooldown -- in-flight returns must not start new
-        sessions -- or when the sampler yields no spawnable root.
+        sessions -- or when the sampler yields no spawnable root. No-op in an
+        open-loop phase, where arrivals start sessions instead.
         """
-        if not self.stop_checker.can_start_new_session():
+        if self._session_arrival_config is not None:
             return
+        await self._start_root_on_lane(lane)
+
+    async def _start_root_on_lane(
+        self, lane: int
+    ) -> tuple[SampledSession | None, bool]:
+        """Start the sampler's next root at turn 0 on ``lane``: the session,
+        or None when none was started, and whether its credit was issued."""
+        if not self.stop_checker.can_start_new_session():
+            return None, False
 
         next_trace_id = self.conversation_source.next_recycle_conversation_id()
         if next_trace_id is None:
-            return
+            return None, False
 
         session = self._build_session_for_trace(next_trace_id)
         if session is None or not session.metadata.turns:
-            return
+            return None, False
 
         self._correlation_to_lane[session.x_correlation_id] = lane
         self._root_to_lane[session.effective_root_correlation_id] = lane
@@ -1666,7 +1798,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         )
 
         turn = self._build_turn_for_session(session, 0)
-        await self.credit_issuer.issue_credit(turn)
+        return session, await self.credit_issuer.issue_credit(turn)
 
     async def _on_rootless_child_done(self, lane: int) -> None:
         """Account a rootless lane's background child completing.

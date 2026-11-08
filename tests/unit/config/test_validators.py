@@ -287,3 +287,69 @@ def test_agentic_cache_warmup_modes_are_mutually_exclusive() -> None:
 def test_no_agentic_cache_warmup_duration_accepted() -> None:
     cfg = _make(phases=_agentic_phase())
     assert cfg.benchmark.phases[0].agentic_cache_warmup_duration is None
+
+
+def _open_loop_phase(**phase_overrides) -> list[dict]:
+    return [
+        {
+            "name": "profiling",
+            "type": "concurrency",
+            "duration": 900,
+            "concurrency": 8,
+            "timing_mode": "agentic_replay",
+            "session_arrivals": {"rate": 0.05, "ceiling": 4096},
+            **phase_overrides,
+        }
+    ]
+
+
+def test_session_arrivals_on_agentic_replay_accepted() -> None:
+    cfg = _make(
+        phases=_open_loop_phase(
+            session_arrivals={
+                "rate": 0.05,
+                "pattern": "gamma",
+                "cv": 4.0,
+                "ceiling": 4096,
+            }
+        )
+    )
+    arrivals = cfg.benchmark.phases[0].session_arrivals
+    assert (arrivals.pattern, arrivals.cv, arrivals.gamma_shape) == (
+        "gamma",
+        4.0,
+        1 / 16,
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides,message",
+    [
+        (
+            {"timing_mode": None},
+            "open-loop session arrivals requires the agentic_replay",
+        ),
+        ({"duration": None, "requests": 10}, "needs --benchmark-duration"),
+        ({"session_arrivals": {"rate": 0.05, "ceiling": 4}}, "below --concurrency 8"),
+        ({"session_arrivals": {"rate": 0.05}}, "ceiling"),
+        (
+            {"session_arrivals": {"rate": 0.05, "ceiling": 64, "pattern": "gamma"}},
+            "need cv",
+        ),
+        (
+            {"session_arrivals": {"rate": 0.05, "ceiling": 64, "cv": 2.0}},
+            "Poisson arrivals have CV 1",
+        ),
+    ],
+)
+def test_session_arrivals_rejected_before_the_run(
+    overrides: dict, message: str
+) -> None:
+    phase = _open_loop_phase()[0]
+    for key, value in overrides.items():
+        if value is None:
+            phase.pop(key, None)
+        else:
+            phase[key] = value
+    with pytest.raises(ValueError, match=message):
+        _make(phases=[phase])
