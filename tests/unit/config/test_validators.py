@@ -340,6 +340,9 @@ def test_session_arrivals_on_agentic_replay_accepted() -> None:
             {"session_arrivals": {"rate": 0.05, "ceiling": 64, "cv": 2.0}},
             "Poisson arrivals have CV 1",
         ),
+        ({"requests": 100}, "--request-count cannot be combined"),
+        ({"sessions": 10}, "--conversation-num cannot be combined"),
+        ({"concurrency_ramp": 30}, "rewrite the session limit"),
     ],
 )
 def test_session_arrivals_rejected_before_the_run(
@@ -353,3 +356,31 @@ def test_session_arrivals_rejected_before_the_run(
             phase[key] = value
     with pytest.raises(ValueError, match=message):
         _make(phases=[phase])
+
+
+@pytest.mark.parametrize(
+    "phases",
+    [
+        [
+            {
+                "name": "warmup",
+                "kind": "warmup",
+                "type": "concurrency",
+                "requests": 10,
+                "concurrency": 8,
+                "session_arrivals": {"rate": 0.05, "ceiling": 4096},
+            },
+            {**_open_loop_phase()[0], "session_arrivals": None},
+        ],
+        [
+            _open_loop_phase()[0],
+            {**_open_loop_phase()[0], "name": "profiling_2", "kind": "profiling"},
+        ],
+    ],
+    ids=["warmup", "second-profiling"],
+)
+def test_session_arrivals_outside_the_first_profiling_phase_rejected(
+    phases: list[dict],
+) -> None:
+    with pytest.raises(ValueError, match="first profiling phase only"):
+        _make(phases=phases)

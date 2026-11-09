@@ -181,3 +181,62 @@ def test_session_arrival_flags_without_a_rate_are_refused(
     path.write_text(_AGENTIC_PROFILING_YAML.replace("requests: 100", "duration: 900"))
     with pytest.raises(ValueError, match="need --session-arrival-rate"):
         resolve_config(_cli(session_arrival_cv=2.0), path)
+
+
+@pytest.mark.parametrize("block_key", ["session_arrivals", "sessionArrivals"])
+def test_session_arrival_flags_merge_into_a_yaml_block(
+    tmp_path: pathlib.Path, block_key: str
+) -> None:
+    path = tmp_path / "agentic_arrivals.yaml"
+    path.write_text(
+        _AGENTIC_PROFILING_YAML.replace(
+            "    requests: 100\n",
+            "    duration: 900\n"
+            f"    {block_key}: {{rate: 0.05, pattern: gamma, cv: 2, ceiling: 4096}}\n",
+        )
+    )
+    cfg = resolve_config(_cli(session_arrival_cv=4.0), path)
+    arrivals = _profiling_phase(cfg).session_arrivals
+    assert (arrivals.rate, arrivals.pattern, arrivals.cv, arrivals.ceiling) == (
+        0.05,
+        "gamma",
+        4.0,
+        4096,
+    )
+
+
+def test_session_arrival_rate_without_a_ceiling_is_refused(
+    tmp_path: pathlib.Path,
+) -> None:
+    path = tmp_path / "agentic_duration.yaml"
+    path.write_text(_AGENTIC_PROFILING_YAML.replace("requests: 100", "duration: 900"))
+    with pytest.raises(ValueError, match="needs --session-concurrency-ceiling"):
+        resolve_config(_cli(session_arrival_rate=0.05), path)
+
+
+@pytest.mark.parametrize(
+    "flags,message",
+    [
+        (
+            {"scenario": "inferencex-agentx-mvp"},
+            "needs --benchmark-duration, even under a scenario",
+        ),
+        ({"request_rate": 1.0}, "needs a concurrency phase"),
+    ],
+)
+def test_session_arrival_flags_refused_on_the_cli_path(
+    flags: dict, message: str
+) -> None:
+    cli = _cli(
+        model_names=["m"],
+        urls=["http://localhost:8000"],
+        endpoint_type="chat",
+        streaming=True,
+        concurrency=8,
+        timing_mode="agentic_replay",
+        session_arrival_rate=0.05,
+        session_concurrency_ceiling=4096,
+        **flags,
+    )
+    with pytest.raises(ValueError, match=message):
+        resolve_config(cli, None)

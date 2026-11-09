@@ -12,6 +12,8 @@ journal missing from the artifact directory.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -33,11 +35,13 @@ from tests.unit.timing.strategies.test_agentic_replay import (
 
 def _run(**phase_fields: object) -> MagicMock:
     phase = SimpleNamespace(
-        burst_phase_starts=False,
-        system_idle_gap_cap_seconds=None,
-        duration=60.0,
-        session_arrivals=SessionArrivalsConfig(rate=0.2, ceiling=512),
-        **phase_fields,
+        **{
+            "burst_phase_starts": False,
+            "system_idle_gap_cap_seconds": None,
+            "duration": 60.0,
+            "session_arrivals": SessionArrivalsConfig(rate=0.2, ceiling=512),
+            **phase_fields,
+        }
     )
     run = MagicMock()
     run.cfg.get_profiling_phases.return_value = [phase]
@@ -59,7 +63,9 @@ async def _drain() -> None:
         await _REAL_SLEEP(0)
 
 
-def _open_loop_strategy(issuer: AsyncMock, *, artifact_dir=None, **phase_fields):
+def _open_loop_strategy(
+    issuer: AsyncMock, *, artifact_dir=None, progress=None, **phase_fields
+):
     strategy, _, scheduler, src = _make_strategy(
         phase=CreditPhase.PROFILING,
         trajectories=[
@@ -71,9 +77,12 @@ def _open_loop_strategy(issuer: AsyncMock, *, artifact_dir=None, **phase_fields)
         issuer=issuer,
         scheduler=LoopScheduler(),
         run=_run(**phase_fields),
+        progress=progress,
     )
     strategy.config.artifact_dir = artifact_dir
     strategy.stop_checker.can_start_new_session.return_value = True
+    strategy.lifecycle.started_at_perf_ns = time.perf_counter_ns()
+    strategy.lifecycle.started_at_ns = time.time_ns()
     return strategy, scheduler, src
 
 
@@ -257,3 +266,110 @@ async def test_open_loop_arrivals_released_together_each_see_the_slots_left() ->
     assert [a.ceiling_full for a in strategy._session_arrivals] == [False, True, True]
     blocked.set()
     await _drain()
+
+
+@pytest.mark.asyncio
+async def test_open_loop_idle_cap_still_rechecks_when_replay_work_drains(
+    time_traveler_no_patch_sleep,
+) -> None:
+    """The arrival loop waits for the whole phase. If the replay scheduler
+    tracked it, the scheduler would never drain, so the system-idle cap would
+    skip the recheck after a capped timer's turn is held by a replay barrier,
+    and a later in-session turn would stay as far out as its recorded gap."""
+    progress = MagicMock()
+    progress.in_flight = 0
+    issuer = _issuer(AsyncMock(return_value=True))
+    strategy, scheduler, _ = _open_loop_strategy(
+        issuer, progress=progress, system_idle_gap_cap_seconds=0.05
+    )
+    strategy._session_arrivals = [SessionArrival(index=0, scheduled_offset_sec=1e3)]
+    await strategy.setup_phase()
+    await strategy.execute_phase()
+    issued_at: list[float] = []
+
+    async def held_by_barrier() -> None:
+        return None
+
+    async def far_turn() -> None:
+        issued_at.append(time.monotonic())
+
+    scheduler.schedule_later(0.1, held_by_barrier())
+    scheduler.schedule_later(2_000.0, far_turn())
+    idle_started_at = time.monotonic()
+    strategy.enforce_system_idle_cap(in_flight_requests=0)
+    await asyncio.sleep(0.15)
+
+    assert len(issued_at) == 1
+    assert issued_at[0] - idle_started_at == pytest.approx(0.05, abs=0.02)
+    await strategy.finalize_phase()
+    assert strategy._session_arrival_task.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_open_loop_schedule_counts_from_the_phase_start() -> None:
+    """Arrivals already due when the warmed lanes have dispatched are released
+    at once, and their lag counts from the phase start the duration stop uses,
+    so the schedule cannot run past the phase end."""
+    issuer = _issuer(AsyncMock(return_value=True))
+    strategy, _, _ = _open_loop_strategy(issuer)
+    strategy.lifecycle.started_at_perf_ns -= 5 * 10**9
+    strategy.lifecycle.started_at_ns -= 5 * 10**9
+    strategy._session_arrivals = [SessionArrival(index=0, scheduled_offset_sec=1.0)]
+    await strategy.setup_phase()
+    await strategy.execute_phase()
+    await strategy._session_arrival_task
+    await _drain()
+
+    arrival = strategy._session_arrivals[0]
+    assert strategy._session_arrival_start_ns == strategy.lifecycle.started_at_ns
+    scheduled_ns = strategy.lifecycle.started_at_ns + 10**9
+    assert arrival.fired_ns - scheduled_ns > 3.9 * 10**9
+
+
+@pytest.mark.asyncio
+async def test_open_loop_phase_stop_leaves_the_rest_unfired_and_unstarted(
+    tmp_path,
+) -> None:
+    """When the phase stops starting sessions, the loop releases nothing more,
+    an arrival still waiting to start is cancelled with the phase's other
+    replay work, and the journal records both as not started."""
+    held = asyncio.Event()
+
+    async def capture(turn: TurnToSend) -> bool:
+        if turn.turn_index == 0 and not held.is_set():
+            held.set()
+            await asyncio.Event().wait()
+        return True
+
+    issuer = _issuer(capture)
+    strategy, scheduler, _ = _open_loop_strategy(issuer, artifact_dir=tmp_path)
+    arrivals = [
+        SessionArrival(index=i, scheduled_offset_sec=offset)
+        for i, offset in enumerate((0.0, 1e3, 1e3))
+    ]
+    strategy._session_arrivals = arrivals
+    strategy.stop_checker.can_start_new_session.side_effect = lambda: (
+        sum(a.fired_ns is not None for a in arrivals) < 2
+    )
+    await strategy.setup_phase()
+    await strategy.execute_phase()
+    await strategy._session_arrival_task
+    await _drain()
+
+    # Arrival 0 is waiting inside issue_credit; arrival 1 fired as the phase
+    # stopped, so it was refused, which is not a ceiling wait; 2 never fired.
+    assert held.is_set()
+    assert [a.fired_ns is not None for a in arrivals] == [True, True, False]
+    assert [a.started for a in arrivals] == [False, False, False]
+    assert [a.ceiling_full for a in arrivals] == [False, False, None]
+    for task in scheduler.cancel_all():
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    await strategy.finalize_phase()
+
+    journal = orjson.loads((tmp_path / SESSION_ARRIVALS_FILE).read_bytes())
+    summary = journal["summary"]
+    assert (summary["fired"], summary["started"], summary["not_started"]) == (2, 0, 3)
+    assert summary["ceiling_waits"] == 0
+    assert journal["arrivals"][0]["issued_ns"] is None
+    assert journal["arrivals"][1]["issued_ns"] is not None

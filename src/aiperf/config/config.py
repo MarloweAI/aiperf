@@ -767,29 +767,60 @@ class BenchmarkConfig(BaseConfig, BenchmarkHelpersMixin):
 
     @model_validator(mode="after")
     def validate_session_arrivals(self) -> Self:
-        """Check open-loop session arrivals before the run starts: they need the
-        agentic_replay timing mode, a profiling duration to schedule over, and a
-        session ceiling no lower than the warmed lanes they start from."""
-        configured = False
-        for phase in self.get_profiling_phases():
-            arrivals = getattr(phase, "session_arrivals", None)
-            if arrivals is None:
-                continue
-            configured = True
-            if getattr(phase, "duration", None) is None:
+        """Check open-loop session arrivals before the run starts.
+
+        The agentic_replay strategy reads them from the first profiling phase
+        only. They are scheduled over its duration, start from its warmed
+        lanes (so the ceiling may not be below ``concurrency``), and own its
+        session limit, so a concurrency ramp or adaptive scale, which rewrite
+        that limit, cannot run with them. The open loop ends at the duration;
+        a request or session count would cut the schedule short.
+        """
+        with_arrivals = [
+            phase
+            for phase in self.phases
+            if getattr(phase, "session_arrivals", None) is not None
+        ]
+        if not with_arrivals:
+            return self
+        profiling = self.get_profiling_phases()
+        if not profiling or with_arrivals != [profiling[0]]:
+            raise ValueError(
+                "session_arrivals applies to the first profiling phase only; "
+                "remove it from warmup and later profiling phases."
+            )
+        self._require_agentic_replay("open-loop session arrivals")
+        phase = with_arrivals[0]
+        if phase.duration is None:
+            raise ValueError(
+                "--session-arrival-rate needs --benchmark-duration, even under "
+                "a scenario: arrivals are scheduled over the profiling duration."
+            )
+        for flag, value in (
+            ("--request-count", phase.requests),
+            ("--conversation-num", phase.sessions),
+        ):
+            if value is not None:
                 raise ValueError(
-                    "--session-arrival-rate needs --benchmark-duration: arrivals "
-                    "are scheduled over the profiling duration."
+                    f"{flag} cannot be combined with --session-arrival-rate: the "
+                    "open loop runs for --benchmark-duration, and a count would "
+                    "stop it before its schedule ends."
                 )
-            concurrency = getattr(phase, "concurrency", None)
-            if isinstance(concurrency, int) and arrivals.ceiling < concurrency:
-                raise ValueError(
-                    f"--session-concurrency-ceiling {arrivals.ceiling} is below "
-                    f"--concurrency {concurrency}, the warmed sessions the open "
-                    "loop starts from."
-                )
-        if configured:
-            self._require_agentic_replay("open-loop session arrivals")
+        if phase.concurrency_ramp is not None or phase.adaptive_scale:
+            raise ValueError(
+                "--session-arrival-rate cannot be combined with "
+                "--concurrency-ramp-duration or adaptive scale: both rewrite the "
+                "session limit that --session-concurrency-ceiling sets."
+            )
+        if (
+            phase.concurrency is not None
+            and phase.session_arrivals.ceiling < phase.concurrency
+        ):
+            raise ValueError(
+                f"--session-concurrency-ceiling {phase.session_arrivals.ceiling} "
+                f"is below --concurrency {phase.concurrency}, the warmed sessions "
+                "the open loop starts from."
+            )
         return self
 
     def _require_agentic_replay(self, feature: str) -> None:

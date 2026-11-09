@@ -65,7 +65,8 @@ class SessionArrival:
     fired_ns: int | None = None
     """Wall clock (time.time_ns) when the arrival loop released it; None if never."""
     ceiling_full: bool | None = None
-    """Whether every session slot was taken when it fired, so it waited for one."""
+    """Whether every session slot was taken when its task went to start it, so
+    it waited for one; None if never released."""
     issued_ns: int | None = None
     """Wall clock when its first credit was issued or refused; None if never."""
     started: bool = False

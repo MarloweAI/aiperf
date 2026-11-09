@@ -67,6 +67,7 @@ arrival, which is the offered load.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 import uuid
 from collections import Counter, deque
@@ -76,7 +77,7 @@ from typing import TYPE_CHECKING
 import orjson
 from msgspec.structs import replace as _struct_replace
 
-from aiperf.common.constants import MILLIS_PER_SECOND
+from aiperf.common.constants import MILLIS_PER_SECOND, NANOS_PER_SECOND
 from aiperf.common.enums import CacheBustTarget, CreditPhase
 from aiperf.common.environment import Environment
 from aiperf.common.mixins import AIPerfLoggerMixin
@@ -1034,6 +1035,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         """Persist the drained accelerated-warmup DAG for profiling, and an
         open-loop phase's session arrival journal."""
         if self._session_arrival_config is not None:
+            await self._stop_session_arrivals()
             await self._write_session_arrival_journal()
         if self._system_idle_gap_cap_seconds is not None:
             self._cancel_system_idle_watchdog()
@@ -1441,21 +1443,31 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         if first_error is not None:
             raise first_error
         if self._session_arrival_config is not None:
-            self._session_arrival_task = self.scheduler.execute_async(
+            # Not on the replay scheduler: a task there for the whole phase
+            # would keep it from draining, and the system-idle cap rechecks
+            # pending turns when it drains.
+            self._session_arrival_task = asyncio.create_task(
                 self._run_session_arrivals()
             )
+            self._session_arrival_task.add_done_callback(self._on_session_arrivals_done)
 
     async def _run_session_arrivals(self) -> None:
         """Release each scheduled arrival at its time, until the phase stops
         starting sessions.
 
-        Each arrival starts in its own task, so one waiting for a session slot
-        never delays the arrivals after it. The loop sleeps instead of using
-        scheduler timers, which the global system-idle cap would pull forward.
+        The schedule counts from the phase start, the clock the duration stop
+        uses, so arrivals already due when the warmed lanes have dispatched
+        are released at once and their lag is recorded. Each arrival starts
+        in its own task, so one waiting for a session slot never delays the
+        arrivals after it. The loop sleeps instead of using scheduler timers,
+        which the global system-idle cap would pull forward.
         """
         loop = asyncio.get_running_loop()
-        start = loop.time()
-        self._session_arrival_start_ns = time.time_ns()
+        since_phase_start = (
+            time.perf_counter_ns() - self.lifecycle.started_at_perf_ns
+        ) / NANOS_PER_SECOND
+        start = loop.time() - since_phase_start
+        self._session_arrival_start_ns = self.lifecycle.started_at_ns
         first_lane = len(self.conversation_source.trajectories)
         for arrival in self._session_arrivals:
             delay = start + arrival.scheduled_offset_sec - loop.time()
@@ -1474,10 +1486,12 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         The ceiling check runs here, not in the arrival loop: nothing between
         it and the session-slot acquire inside ``issue_credit`` suspends, so it
         sees exactly the slots earlier arrivals left, even for arrivals the
-        loop released together.
+        loop released together. An arrival refused because the phase stopped
+        starting sessions is not a ceiling wait.
         """
         arrival.ceiling_full = (
-            not self.credit_issuer.can_acquire_and_start_new_session()
+            self.stop_checker.can_start_new_session()
+            and not self.credit_issuer.can_acquire_and_start_new_session()
         )
         session, started = await self._start_root_on_lane(lane)
         arrival.issued_ns = time.time_ns()
@@ -1485,6 +1499,22 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         if session is not None:
             arrival.conversation_id = session.conversation_id
             arrival.x_correlation_id = session.x_correlation_id
+
+    def _on_session_arrivals_done(self, task: asyncio.Task) -> None:
+        """Report an arrival loop that failed; the journal shows what it missed."""
+        if not task.cancelled() and task.exception() is not None:
+            self.error(
+                f"PROFILING open loop: arrival loop failed: {task.exception()!r}"
+            )
+
+    async def _stop_session_arrivals(self) -> None:
+        """Stop the arrival loop before the journal is written."""
+        task = self._session_arrival_task
+        if task is None or task.done():
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     async def _write_session_arrival_journal(self) -> None:
         """Write ``session_arrivals.json`` beside the phase's other exports."""
@@ -1725,7 +1755,8 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         *,
         finished_correlation_id: str,
     ) -> None:
-        """Recycle a finished root: release its lane and start a fresh session.
+        """Recycle a finished root: release its lane and, in closed loop,
+        start a fresh session on it.
 
         The next root is drawn from the dataset sampler (see
         ``_dispatch_recycled_on_lane``), so the just-finished trace_id no longer
