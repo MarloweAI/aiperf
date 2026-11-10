@@ -4,6 +4,7 @@
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 from pytest import param
 
 from aiperf.common.environment import (
@@ -12,6 +13,7 @@ from aiperf.common.environment import (
     _Environment,
     _SearchPlannerSettings,
     _ServiceSettings,
+    _TimingSettings,
 )
 
 
@@ -416,3 +418,19 @@ class TestUISettingsRealtimeMetricsInterval:
 
         settings = _UISettings(REALTIME_METRICS_INTERVAL=configured)
         assert settings.realtime_metrics_interval(UIType(ui_type.lower())) == expected
+
+
+@pytest.mark.parametrize("seconds", [1260.0, 21660.0])
+def test_cancel_drain_accepts_long_request_deadlines(
+    monkeypatch: pytest.MonkeyPatch, seconds: float
+) -> None:
+    """A bounded outstanding request may outlive the former five-minute ceiling."""
+    monkeypatch.setenv("AIPERF_TIMING_CANCEL_DRAIN_TIMEOUT", str(seconds))
+    assert seconds == _TimingSettings().CANCEL_DRAIN_TIMEOUT
+
+
+@pytest.mark.parametrize("seconds", [0.0, float("inf"), float("nan")])
+def test_cancel_drain_rejects_unbounded_or_nonpositive_time(seconds: float) -> None:
+    """Removing the ceiling must not permit an unbounded shutdown wait."""
+    with pytest.raises(ValidationError):
+        _TimingSettings(CANCEL_DRAIN_TIMEOUT=seconds)

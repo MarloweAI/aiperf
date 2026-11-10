@@ -1164,9 +1164,10 @@ class _TimingSettings(BaseSettings):
 
     CANCEL_DRAIN_TIMEOUT: float = Field(
         ge=1.0,
-        le=300.0,
+        allow_inf_nan=False,
         default=10.0,
-        description="Timeout in seconds for waiting for cancelled credits to drain after phase timeout",
+        description="Finite timeout in seconds for waiting for cancelled credits to drain after phase timeout. "
+        "Set this above the remaining request deadline when a transport drains active HTTP requests.",
     )
     RATE_RAMP_UPDATE_INTERVAL: float = Field(
         ge=0.01,
