@@ -379,6 +379,11 @@ Maximum time in seconds to wait for each HTTP request to complete, including con
 Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`. The conversation waits for its retried turn, and latency and TTFT are measured from the first attempt. For reliability experiments; leave off for performance measurements.
 <br/>_Flag (no value required)_
 
+#### `--retry-failed-warmup-requests`
+
+Retry only warmup requests, with the same rules, wait and attempt cap as --retry-failed-requests. A router that refuses the warmup burst (429 or 503) then delays the warmup instead of failing it, while profiling requests stay first attempts. Has no effect when --retry-failed-requests is set.
+<br/>_Flag (no value required)_
+
 #### `--retry-wait-seconds` `<float>`
 
 Seconds to wait before each retry when --retry-failed-requests is set.
@@ -1110,6 +1115,25 @@ AGENTIC_REPLAY only: upper bound (inclusive) on the random start position within
 
 AGENTIC_REPLAY only: collapse the WARMUP-start and PROFILING-start dispatches into synchronized bursts instead of preserving recorded spacing. By default (False), WARMUP requests are aligned globally so every trajectory reaches t* together. PROFILING subtracts one phase-wide minimum from every first request offset: the earliest request starts immediately and all other trajectories retain their recorded spacing. Pass --burst-phase-starts to subtract a separate minimum per lane, making every lane start immediately. Subsequent inter-turn delays are timing-faithful in either mode.
 <br/>_Flag (no value required)_
+
+#### `--session-arrival-rate` `<float>`
+
+AGENTIC_REPLAY only: start new sessions open loop, at this mean rate in sessions per second, instead of recycling a lane when its session tree drains. The warmed --concurrency lanes are the session population at profiling start. Each arrival starts a trace at turn 0; inside a session each turn still waits for the previous reply and then the recorded, capped gap. Needs --benchmark-duration and --session-concurrency-ceiling.
+<br/>_Constraints: > 0_
+
+#### `--session-arrival-pattern` `<str>`
+
+AGENTIC_REPLAY only: inter-arrival distribution of --session-arrival-rate: poisson (default) or gamma with --session-arrival-cv.
+
+#### `--session-arrival-cv` `<float>`
+
+AGENTIC_REPLAY only: coefficient of variation of session inter-arrival times for --session-arrival-pattern gamma (shape 1/CV^2). 1 is Poisson; larger values are burstier.
+<br/>_Constraints: > 0_
+
+#### `--session-concurrency-ceiling` `<int>`
+
+AGENTIC_REPLAY only: the most sessions the client keeps open at once under --session-arrival-rate, in place of --concurrency. Set it far above the server's capacity: an arrival that finds every slot taken waits for one, and session_arrivals.json records it as held back.
+<br/>_Constraints: > 0_
 
 #### `--trace-idle-gap-cap-seconds` `<float>`
 
@@ -1953,6 +1977,11 @@ Maximum time in seconds to wait for each HTTP request to complete, including con
 Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`. The conversation waits for its retried turn, and latency and TTFT are measured from the first attempt. For reliability experiments; leave off for performance measurements.
 <br/>_Flag (no value required)_
 
+#### `--retry-failed-warmup-requests`
+
+Retry only warmup requests, with the same rules, wait and attempt cap as --retry-failed-requests. A router that refuses the warmup burst (429 or 503) then delays the warmup instead of failing it, while profiling requests stay first attempts. Has no effect when --retry-failed-requests is set.
+<br/>_Flag (no value required)_
+
 #### `--retry-wait-seconds` `<float>`
 
 Seconds to wait before each retry when --retry-failed-requests is set.
@@ -2684,6 +2713,25 @@ AGENTIC_REPLAY only: upper bound (inclusive) on the random start position within
 
 AGENTIC_REPLAY only: collapse the WARMUP-start and PROFILING-start dispatches into synchronized bursts instead of preserving recorded spacing. By default (False), WARMUP requests are aligned globally so every trajectory reaches t* together. PROFILING subtracts one phase-wide minimum from every first request offset: the earliest request starts immediately and all other trajectories retain their recorded spacing. Pass --burst-phase-starts to subtract a separate minimum per lane, making every lane start immediately. Subsequent inter-turn delays are timing-faithful in either mode.
 <br/>_Flag (no value required)_
+
+#### `--session-arrival-rate` `<float>`
+
+AGENTIC_REPLAY only: start new sessions open loop, at this mean rate in sessions per second, instead of recycling a lane when its session tree drains. The warmed --concurrency lanes are the session population at profiling start. Each arrival starts a trace at turn 0; inside a session each turn still waits for the previous reply and then the recorded, capped gap. Needs --benchmark-duration and --session-concurrency-ceiling.
+<br/>_Constraints: > 0_
+
+#### `--session-arrival-pattern` `<str>`
+
+AGENTIC_REPLAY only: inter-arrival distribution of --session-arrival-rate: poisson (default) or gamma with --session-arrival-cv.
+
+#### `--session-arrival-cv` `<float>`
+
+AGENTIC_REPLAY only: coefficient of variation of session inter-arrival times for --session-arrival-pattern gamma (shape 1/CV^2). 1 is Poisson; larger values are burstier.
+<br/>_Constraints: > 0_
+
+#### `--session-concurrency-ceiling` `<int>`
+
+AGENTIC_REPLAY only: the most sessions the client keeps open at once under --session-arrival-rate, in place of --concurrency. Set it far above the server's capacity: an arrival that finds every slot taken waits for one, and session_arrivals.json records it as held back.
+<br/>_Constraints: > 0_
 
 #### `--trace-idle-gap-cap-seconds` `<float>`
 

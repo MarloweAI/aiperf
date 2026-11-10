@@ -60,6 +60,74 @@ __all__ = [
 ]
 
 
+class SessionArrivalsConfig(BaseConfig):
+    """AGENTIC_REPLAY only: open-loop session arrivals for a profiling phase.
+
+    The warmed ``concurrency`` lanes are the session population at profiling
+    start. New sessions then start at turn 0 on a schedule drawn from this
+    process over the phase duration, and a drained lane is not recycled.
+    Inside a session each turn still waits for the previous reply and then the
+    recorded, capped gap.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    rate: Annotated[
+        float,
+        Field(gt=0, description="Mean session arrival rate, sessions per second."),
+    ]
+
+    pattern: Annotated[
+        Literal["poisson", "gamma"],
+        Field(
+            default="poisson",
+            description="Inter-arrival distribution: poisson (exponential) or "
+            "gamma with ``cv``.",
+        ),
+    ]
+
+    cv: Annotated[
+        float | None,
+        Field(
+            default=None,
+            gt=0,
+            description="Gamma only: coefficient of variation of inter-arrival "
+            "times (shape 1/cv^2). 1 is Poisson; larger values are burstier.",
+        ),
+    ]
+
+    ceiling: Annotated[
+        int,
+        Field(
+            gt=0,
+            description="The most sessions the client keeps open at once, in "
+            "place of ``concurrency``. Set it far above the server's capacity: "
+            "an arrival that finds every slot taken waits for one, and "
+            "session_arrivals.json records it as held back.",
+        ),
+    ]
+
+    @model_validator(mode="after")
+    def _validate_process(self) -> Self:
+        if self.pattern == "gamma" and self.cv is None:
+            raise ValueError("gamma session arrivals need cv")
+        if self.pattern == "poisson" and self.cv not in (None, 1.0):
+            raise ValueError(
+                f"Poisson arrivals have CV 1, not {self.cv}; use pattern gamma"
+            )
+        return self
+
+    @property
+    def effective_cv(self) -> float:
+        """The CV of the process: ``cv``, or 1 for Poisson."""
+        return 1.0 if self.cv is None else self.cv
+
+    @property
+    def gamma_shape(self) -> float:
+        """Gamma shape for this CV (``--arrival-smoothness`` in request-rate mode)."""
+        return 1.0 / (self.effective_cv * self.effective_cv)
+
+
 # =============================================================================
 # PHASE HIERARCHY
 # =============================================================================
@@ -534,6 +602,16 @@ class ConcurrencyPhase(BasePhaseConfig):
             default=1,
             description="Max concurrent in-flight requests (must be >= 1). "
             "Primary control for concurrency phases.",
+        ),
+    ]
+
+    session_arrivals: Annotated[
+        SessionArrivalsConfig | None,
+        Field(
+            default=None,
+            description="AGENTIC_REPLAY only: start new sessions open loop on "
+            "this arrival process instead of recycling a lane when its session "
+            "tree drains. None keeps the closed loop.",
         ),
     ]
 

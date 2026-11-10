@@ -495,8 +495,9 @@ Concurrency here is **per session tree**: each lane holds one slot for a
 whole tree — the root conversation plus every subagent worker stream it
 spawns. A lane recycles only once its **entire tree drains** — the root has
 sent its last turn *and* every subagent has finished — not merely when the
-root's final turn is acknowledged. Exactly `--concurrency` trees stay live at
-all times. Never more: a new root can't start until a tree fully drains.
+root's final turn is acknowledged. In the default closed loop, exactly
+`--concurrency` trees stay live at all times (for an open loop, see
+[Open-loop session arrivals](#open-loop-session-arrivals)). Never more: a new root can't start until a tree fully drains.
 Never fewer: a lane whose root has finished but whose subagents are still
 draining keeps its slot. The shared tree id (`root_correlation_id`) is
 written to every record in `profile_export.jsonl` (in the artifact
@@ -539,6 +540,64 @@ A few wrinkles worth knowing:
 - **Profiling ends** when `--benchmark-duration` elapses. Anything in flight
   finishes during a grace-period drain and is included in the metrics; nothing
   *new* starts after the duration ends.
+
+### Open-loop session arrivals
+
+The profiling phase above is a closed loop: a lane starts its next root only
+when its tree drains, so the offered load falls when the server slows down.
+`--session-arrival-rate` makes it an open loop, where new sessions keep
+arriving whatever the server's latency:
+
+```bash
+aiperf profile --scenario inferencex-agentx-mvp ... \
+  --concurrency 32 --benchmark-duration 1800 \
+  --session-arrival-rate 0.02 --session-arrival-pattern gamma \
+  --session-arrival-cv 2 --session-concurrency-ceiling 4096
+```
+
+- **Same start.** The `--concurrency` lanes warm and resume exactly as in the
+  closed loop; they are the population at the phase start. A drained lane does
+  not recycle.
+- **Arrivals.** New sessions start at turn 0, each on a new lane with its own
+  cache-bust marker, at `--session-arrival-rate` sessions per second.
+  `--session-arrival-pattern poisson` (the default, CV 1) or `gamma` with
+  `--session-arrival-cv` (shape 1/CV²) sets how bursty they are. The schedule
+  is drawn from `--random-seed` before the phase starts and counts from the
+  phase start, so it does not depend on the server.
+- **Inside a session nothing changes.** Each turn waits for the previous
+  reply, then for its recorded gap capped by `--trace-idle-gap-cap-seconds`;
+  subagent spawns and joins hold, and the global idle guard works as above.
+- **Ceiling.** `--session-concurrency-ceiling` replaces `--concurrency` as the
+  phase's limit on open session trees. Set it far above anything the server
+  admits. An arrival that finds every slot taken waits for one in its own
+  task, so it never delays later arrivals, and the journal counts it.
+- **Refused combinations.** It needs `--benchmark-duration`, also under the
+  scenario, and cannot be combined with `--request-count`,
+  `--conversation-num`, `--concurrency-ramp-duration`, adaptive scale or
+  `--request-rate`, which would end the schedule early or rewrite the ceiling.
+- **Not the steady state.** The warmed population is the closed loop's sample
+  of sessions at their start points, not the open loop's steady state. It is a
+  good start when `--concurrency` is close to the arrival rate times the mean
+  session duration; per-window request rates show any drift.
+
+At phase end the artifact directory gains `session_arrivals.json`
+(`schema_version` 1), and the log summarizes it as `PROFILING open loop: N of
+M scheduled sessions started; K waited for the session ceiling; start lag p99
+… ms`.
+
+| Field | Meaning |
+| --- | --- |
+| `config` | `rate_per_sec`, `pattern`, `cv`, `gamma_shape`, `ceiling` |
+| `initial_sessions` | warmed lanes at the phase start |
+| `start_ns`, `duration_sec` | the phase start and the duration the schedule covers |
+| `summary.scheduled`, `fired`, `started`, `not_started` | arrivals scheduled; released by the arrival loop; whose first credit was issued; not started, because the phase stopped first or the arrival was still waiting at phase end |
+| `summary.ceiling_waits`, `held_back` | arrivals that found the ceiling full, and whether any did |
+| `summary.fire_lag_ms`, `start_lag_ms` | p50, p99 and max of how far release and first credit fell behind schedule |
+| `arrivals[]` | per arrival: `index`, `scheduled_offset_sec`, `scheduled_ns`, `fired_ns`, `ceiling_full`, `issued_ns`, `started`, `conversation_id`, `x_correlation_id` (as the request records carry it) |
+
+Every `_ns` stamp is wall clock (`time.time_ns()`), and a lag is measured from
+`start_ns` plus the arrival's offset, so a wall-clock step during the run
+shifts it. A value that was never observed is `null`, never zero.
 
 ### Subagents
 

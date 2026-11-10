@@ -452,6 +452,7 @@ def _apply_phase_loadgen_overrides(merged: dict[str, Any], cli: CLIConfig) -> No
     from aiperf.config.flags._converter_profiling import (
         _AGENTIC_REPLAY_ROUTES,
         _apply_agentic_replay_fields,
+        _apply_session_arrival_fields,
     )
 
     loadgen_set = (cli.model_fields_set & LOADGEN_FIELDS) - _BENCHMARK_LEVEL_FIELDS
@@ -502,6 +503,7 @@ def _apply_phase_loadgen_overrides(merged: dict[str, Any], cli: CLIConfig) -> No
         target["grace_period"] = cli.benchmark_grace_period
 
     _apply_agentic_replay_fields(target, cli)
+    _apply_session_arrival_fields(target, cli)
 
 
 def _reject_loadgen_target_collisions(fields_set: set[str]) -> None:

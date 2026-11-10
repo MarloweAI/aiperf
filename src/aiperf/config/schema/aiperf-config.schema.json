@@ -1344,6 +1344,18 @@
                       "description": "AGENTIC_REPLAY only: grace period in seconds the auto-synthesized warmup barrier waits for in-flight priming requests after the warmup burst sends. Read off the profiling phase by ``timing.config._build_agentic_warmup_config`` (the agentic warmup is not a user-declared phase, so it does not inherit ``--warmup-grace-period``, which requires ``--warmup-duration``). None waits indefinitely (the agentic warmup must complete every primed trajectory before profiling starts).",
                       "title": "Agenticwarmupgraceperiod"
                     },
+                    "sessionArrivals": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/SessionArrivalsConfig"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "AGENTIC_REPLAY only: start new sessions open loop on this arrival process instead of recycling a lane when its session tree drains. None keeps the closed loop."
+                    },
                     "adaptive_scale": {
                       "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                       "title": "Adaptivescale",
@@ -5238,6 +5250,18 @@
                   "description": "AGENTIC_REPLAY only: grace period in seconds the auto-synthesized warmup barrier waits for in-flight priming requests after the warmup burst sends. Read off the profiling phase by ``timing.config._build_agentic_warmup_config`` (the agentic warmup is not a user-declared phase, so it does not inherit ``--warmup-grace-period``, which requires ``--warmup-duration``). None waits indefinitely (the agentic warmup must complete every primed trajectory before profiling starts).",
                   "title": "Agenticwarmupgraceperiod"
                 },
+                "sessionArrivals": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SessionArrivalsConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "AGENTIC_REPLAY only: start new sessions open loop on this arrival process instead of recycling a lane when its session tree drains. None keeps the closed loop."
+                },
                 "adaptive_scale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                   "title": "Adaptivescale",
@@ -8228,6 +8252,18 @@
                   "default": null,
                   "description": "AGENTIC_REPLAY only: grace period in seconds the auto-synthesized warmup barrier waits for in-flight priming requests after the warmup burst sends. Read off the profiling phase by ``timing.config._build_agentic_warmup_config`` (the agentic warmup is not a user-declared phase, so it does not inherit ``--warmup-grace-period``, which requires ``--warmup-duration``). None waits indefinitely (the agentic warmup must complete every primed trajectory before profiling starts).",
                   "title": "Agenticwarmupgraceperiod"
+                },
+                "sessionArrivals": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SessionArrivalsConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "AGENTIC_REPLAY only: start new sessions open loop on this arrival process instead of recycling a lane when its session tree drains. None keeps the closed loop."
                 },
                 "adaptive_scale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
@@ -11663,6 +11699,18 @@
           "title": "Agenticwarmupgraceperiod",
           "x-jinja2-supported": true
         },
+        "sessionArrivals": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionArrivalsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "AGENTIC_REPLAY only: start new sessions open loop on this arrival process instead of recycling a lane when its session tree drains. None keeps the closed loop."
+        },
         "adaptive_scale": {
           "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
           "title": "Adaptivescale",
@@ -13035,6 +13083,12 @@
           "default": false,
           "description": "Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`, the way a user retries. The conversation waits for its retried turn. Latency and TTFT are measured from the first attempt. For reliability experiments; leave off for performance measurements.",
           "title": "Retryfailedrequests",
+          "type": "boolean"
+        },
+        "retryFailedWarmupRequests": {
+          "default": false,
+          "description": "Retry only warmup requests, with the same rules, wait and attempt cap as --retry-failed-requests. A router that refuses the warmup burst (429 or 503) then delays the warmup instead of failing it, while profiling requests stay first attempts. Has no effect when --retry-failed-requests is set.",
+          "title": "Retryfailedwarmuprequests",
           "type": "boolean"
         },
         "retryWaitSeconds": {
@@ -19902,6 +19956,99 @@
       ],
       "title": "ServiceRunType",
       "type": "string"
+    },
+    "SessionArrivalsConfig": {
+      "additionalProperties": false,
+      "description": "AGENTIC_REPLAY only: open-loop session arrivals for a profiling phase.\n\nThe warmed ``concurrency`` lanes are the session population at profiling\nstart. New sessions then start at turn 0 on a schedule drawn from this\nprocess over the phase duration, and a drained lane is not recycled.\nInside a session each turn still waits for the previous reply and then the\nrecorded, capped gap.",
+      "properties": {
+        "rate": {
+          "description": "Mean session arrival rate, sessions per second.",
+          "title": "Rate",
+          "oneOf": [
+            {
+              "description": "Mean session arrival rate, sessions per second.",
+              "exclusiveMinimum": 0,
+              "title": "Rate",
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "x-jinja2-supported": true
+        },
+        "pattern": {
+          "default": "poisson",
+          "description": "Inter-arrival distribution: poisson (exponential) or gamma with ``cv``.",
+          "enum": [
+            "poisson",
+            "gamma"
+          ],
+          "title": "Pattern",
+          "type": "string"
+        },
+        "cv": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "default": null,
+          "description": "Gamma only: coefficient of variation of inter-arrival times (shape 1/cv^2). 1 is Poisson; larger values are burstier.",
+          "title": "Cv",
+          "x-jinja2-supported": true
+        },
+        "ceiling": {
+          "description": "The most sessions the client keeps open at once, in place of ``concurrency``. Set it far above the server's capacity: an arrival that finds every slot taken waits for one, and session_arrivals.json records it as held back.",
+          "title": "Ceiling",
+          "oneOf": [
+            {
+              "description": "The most sessions the client keeps open at once, in place of ``concurrency``. Set it far above the server's capacity: an arrival that finds every slot taken waits for one, and session_arrivals.json records it as held back.",
+              "exclusiveMinimum": 0,
+              "title": "Ceiling",
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "x-jinja2-supported": true
+        }
+      },
+      "required": [
+        "rate",
+        "ceiling"
+      ],
+      "title": "SessionArrivalsConfig",
+      "type": "object"
     },
     "SobolSweep": {
       "additionalProperties": false,

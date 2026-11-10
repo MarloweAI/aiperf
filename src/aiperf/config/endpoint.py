@@ -65,6 +65,7 @@ class EndpointDefaults:
     WAIT_FOR_MODEL_MODE = "inference"
     UUID_AND_STRIP = False
     RETRY_FAILED_REQUESTS = False
+    RETRY_FAILED_WARMUP_REQUESTS = False
     RETRY_WAIT_SECONDS = 10.0
     RETRY_MAX_ATTEMPTS = 0
 
@@ -202,6 +203,14 @@ class EndpointConfig(BaseConfig):
             "The conversation waits for its retried turn. Latency and TTFT are measured "
             "from the first attempt. For reliability experiments; leave off for "
             "performance measurements.",
+        ),
+    ]
+
+    retry_failed_warmup_requests: Annotated[
+        bool,
+        Field(
+            default=EndpointDefaults.RETRY_FAILED_WARMUP_REQUESTS,
+            description="Retry only warmup requests, with the same rules, wait and attempt cap as --retry-failed-requests. A router that refuses the warmup burst (429 or 503) then delays the warmup instead of failing it, while profiling requests stay first attempts. Has no effect when --retry-failed-requests is set.",
         ),
     ]
 

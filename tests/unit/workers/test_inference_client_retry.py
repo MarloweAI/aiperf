@@ -6,7 +6,9 @@ Failure modes covered: a replica lost before the first token (gateway 503),
 a replica lost mid-stream (stream ends without [DONE]), a non-retryable client
 error, a client-side exception without an HTTP status, the attempt cap, retries
 left off by default, endpoints that never send [DONE], a second first-token
-report for one request, and the phase cancelling a request during its wait.
+report for one request, the phase cancelling a request during its wait, and a
+router refusing warmup requests (429/503) while profiling requests must stay
+first attempts.
 """
 
 import asyncio
@@ -71,13 +73,13 @@ def make_client(
     return client, transport
 
 
-def request_info(client: InferenceClient) -> RequestInfo:
+def request_info(client: InferenceClient, phase: str = "profiling") -> RequestInfo:
     return RequestInfo(
         model_endpoint=client.model_endpoint,
         turns=[Turn(texts=[Text(contents=["hi"])])],
         turn_index=0,
         credit_num=0,
-        credit_phase="profiling",
+        credit_phase=phase,
         x_request_id="sai-00000000-0000-0000-0000-000000000001",
         x_correlation_id="c",
         conversation_id="conv",
@@ -200,4 +202,30 @@ async def test_phase_cancellation_during_the_wait_ends_the_request():
         pytest.raises(asyncio.CancelledError),
     ):
         await client.send_request(request_info(client))
+    assert transport.send_request.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", [429, 503])
+async def test_warmup_refusals_are_retried_when_only_warmup_retries(no_wait, code):
+    client, transport = make_client(retry_failed_warmup_requests=True)
+    transport.send_request = AsyncMock(
+        side_effect=[failed(100, code, "refused"), streamed(200, done=True)]
+    )
+    record = await client.send_request(request_info(client, phase="warmup"))
+    assert record.error is None
+    assert record.start_perf_ns == 100
+    assert [error.code for error in record.retried_errors] == [code]
+    assert transport.send_request.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_profiling_refusals_stay_first_attempts_when_only_warmup_retries(
+    no_wait,
+):
+    client, transport = make_client(retry_failed_warmup_requests=True)
+    transport.send_request = AsyncMock(side_effect=[failed(1, 429, "refused")])
+    record = await client.send_request(request_info(client))
+    assert record.error is not None and record.error.code == 429
+    assert record.retried_errors == []
     assert transport.send_request.await_count == 1

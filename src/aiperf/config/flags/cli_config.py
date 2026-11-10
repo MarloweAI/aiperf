@@ -243,6 +243,17 @@ class CLIConfig(BaseConfig):
         ),
     ] = EndpointDefaults.RETRY_FAILED_REQUESTS
 
+    retry_failed_warmup_requests: Annotated[
+        bool,
+        Field(
+            description="Retry only warmup requests, with the same rules, wait and attempt cap as --retry-failed-requests. A router that refuses the warmup burst (429 or 503) then delays the warmup instead of failing it, while profiling requests stay first attempts. Has no effect when --retry-failed-requests is set.",
+        ),
+        CLIParameter(
+            name=("--retry-failed-warmup-requests",),
+            group=Groups.ENDPOINT,
+        ),
+    ] = EndpointDefaults.RETRY_FAILED_WARMUP_REQUESTS
+
     retry_wait_seconds: Annotated[
         float,
         Field(
@@ -2228,6 +2239,53 @@ class CLIConfig(BaseConfig):
             group=Groups.LOAD_GENERATOR,
         ),
     ] = False
+
+    session_arrival_rate: Annotated[
+        float | None,
+        Field(
+            gt=0,
+            description="AGENTIC_REPLAY only: start new sessions open loop, at this mean rate in sessions per second, instead of recycling a lane when its session tree drains. The warmed --concurrency lanes are the session population at profiling start. Each arrival starts a trace at turn 0; inside a session each turn still waits for the previous reply and then the recorded, capped gap. Needs --benchmark-duration and --session-concurrency-ceiling.",
+        ),
+        CLIParameter(
+            name=("--session-arrival-rate",),
+            group=Groups.LOAD_GENERATOR,
+        ),
+    ] = None
+
+    session_arrival_pattern: Annotated[
+        Literal["poisson", "gamma"] | None,
+        Field(
+            description="AGENTIC_REPLAY only: inter-arrival distribution of --session-arrival-rate: poisson (default) or gamma with --session-arrival-cv."
+        ),
+        CLIParameter(
+            name=("--session-arrival-pattern",),
+            group=Groups.LOAD_GENERATOR,
+        ),
+    ] = None
+
+    session_arrival_cv: Annotated[
+        float | None,
+        Field(
+            gt=0,
+            description="AGENTIC_REPLAY only: coefficient of variation of session inter-arrival times for --session-arrival-pattern gamma (shape 1/CV^2). 1 is Poisson; larger values are burstier.",
+        ),
+        CLIParameter(
+            name=("--session-arrival-cv",),
+            group=Groups.LOAD_GENERATOR,
+        ),
+    ] = None
+
+    session_concurrency_ceiling: Annotated[
+        int | None,
+        Field(
+            gt=0,
+            description="AGENTIC_REPLAY only: the most sessions the client keeps open at once under --session-arrival-rate, in place of --concurrency. Set it far above the server's capacity: an arrival that finds every slot taken waits for one, and session_arrivals.json records it as held back.",
+        ),
+        CLIParameter(
+            name=("--session-concurrency-ceiling",),
+            group=Groups.LOAD_GENERATOR,
+        ),
+    ] = None
 
     trace_idle_gap_cap_seconds: Annotated[
         float | None,
