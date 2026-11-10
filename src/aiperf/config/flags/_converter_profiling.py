@@ -59,6 +59,45 @@ _AGENTIC_REPLAY_ROUTES: tuple[str, ...] = (
 )
 
 
+# Flat session-arrival flags and their keys in the profiling phase's
+# ``session_arrivals`` block.
+_SESSION_ARRIVAL_ROUTES: tuple[tuple[str, str], ...] = (
+    ("session_arrival_rate", "rate"),
+    ("session_arrival_pattern", "pattern"),
+    ("session_arrival_cv", "cv"),
+    ("session_concurrency_ceiling", "ceiling"),
+)
+
+
+def _apply_session_arrival_fields(phase: dict[str, Any], cli: CLIConfig) -> None:
+    """Merge explicitly-set session-arrival flags, key by key, into the
+    profiling phase's ``session_arrivals`` block, under whichever spelling a
+    YAML phase already uses."""
+    fields_set = cli.model_fields_set
+    overrides = {
+        key: getattr(cli, attr)
+        for attr, key in _SESSION_ARRIVAL_ROUTES
+        if attr in fields_set and getattr(cli, attr) is not None
+    }
+    if not overrides:
+        return
+    if phase.get("type", "concurrency") != "concurrency":
+        raise ValueError(
+            "--session-arrival-rate needs a concurrency phase; session arrivals "
+            "replace --request-rate and --arrival-pattern, so drop them"
+        )
+    name = "sessionArrivals" if "sessionArrivals" in phase else "session_arrivals"
+    block = {**(phase.get(name) or {}), **overrides}
+    if "rate" not in block:
+        raise ValueError(
+            "--session-arrival-pattern, --session-arrival-cv and "
+            "--session-concurrency-ceiling need --session-arrival-rate"
+        )
+    if "ceiling" not in block:
+        raise ValueError("--session-arrival-rate needs --session-concurrency-ceiling")
+    phase[name] = block
+
+
 def _apply_agentic_replay_fields(phase: dict[str, Any], cli: CLIConfig) -> None:
     """Copy explicitly-set AGENTIC_REPLAY phase fields onto a phase dict.
 
@@ -472,6 +511,7 @@ def build_profiling(cli: CLIConfig) -> dict[str, Any]:
     _apply_profiling_rate_series(prof, cli)
 
     prof["type"] = _profiling_phase_type(cli)
+    _apply_session_arrival_fields(prof, cli)
     _reject_orphan_load_generator_flags(prof, cli)
     _apply_phase_specific_routes(prof, cli)
 
