@@ -24,6 +24,7 @@ from aiperf.common.types import PhaseKind
 from aiperf.config.adaptive_scale_phase import AdaptiveScalePhaseMixin
 from aiperf.config.base import BaseConfig
 from aiperf.config.cancellation import CancellationConfig
+from aiperf.config.concurrency_schedule import ConcurrencySchedule
 from aiperf.config.loader.duration import (
     DurationSpec,
     _normalize_duration,
@@ -536,6 +537,42 @@ class ConcurrencyPhase(BasePhaseConfig):
             "Primary control for concurrency phases.",
         ),
     ]
+
+    agentic_concurrency_schedule: ConcurrencySchedule = Field(
+        default=(),
+        description="AgentX-only wall-clock session targets within one profiling phase. "
+        "Added lanes stop admitting turns when removed; existing HTTP requests drain. "
+        "The initial concurrency lanes remain continuous throughout the phase.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_agentic_schedule(self) -> Self:
+        """Keep one profiling phase and preserve its initial baseline lanes."""
+        if self.agentic_concurrency_schedule:
+            if self.kind != "profiling" or self.type != PhaseType.CONCURRENCY:
+                raise ValueError(
+                    "agentic concurrency schedule requires a concurrency profiling phase"
+                )
+            if self.duration is None or self.concurrency is None:
+                raise ValueError(
+                    "agentic concurrency schedule requires duration and concurrency"
+                )
+            if self.concurrency_ramp is not None or self.adaptive_scale:
+                raise ValueError(
+                    "agentic concurrency schedule cannot combine with ramp or adaptive scaling"
+                )
+            previous = 0.0
+            for step in self.agentic_concurrency_schedule:
+                if not previous < step.at_seconds < self.duration:
+                    raise ValueError(
+                        "agentic concurrency schedule offsets must increase and precede phase end"
+                    )
+                if step.concurrency < self.concurrency:
+                    raise ValueError(
+                        "agentic concurrency schedule cannot remove initial baseline lanes"
+                    )
+                previous = step.at_seconds
+        return self
 
 
 # =============================================================================

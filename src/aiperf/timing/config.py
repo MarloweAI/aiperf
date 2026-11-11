@@ -11,6 +11,7 @@ from pydantic import ConfigDict, Field, model_validator
 from aiperf.common.enums import CacheBustTarget, CreditPhase
 from aiperf.common.models.base_models import AIPerfBaseModel
 from aiperf.common.types import PhaseKind
+from aiperf.config.concurrency_schedule import ConcurrencySchedule
 from aiperf.config.dataset.defaults import InputDefaults
 from aiperf.config.rate_series import RateSeriesConfig
 from aiperf.config.sweep.adaptive import SLAFilter
@@ -186,6 +187,16 @@ class TimingConfig(AIPerfBaseModel):
 
         profiling_phases = cfg.get_profiling_phases()
         agentic = _is_agentic_replay(profiling_phases)
+        if (
+            any(
+                getattr(phase, "agentic_concurrency_schedule", ())
+                for phase in profiling_phases
+            )
+            and len(profiling_phases) != 1
+        ):
+            raise ValueError(
+                "agentic concurrency schedule requires exactly one continuous profiling phase"
+            )
         artifact_dir = cfg.artifacts.dir
 
         profiling_default_cancellation = _default_cancellation_config(cfg.phases)
@@ -302,6 +313,11 @@ class CreditPhaseConfig(AIPerfBaseModel):
         "without waiting for all credits to return. This can be used to maintain concurrency "
         "during phase transitions.",
     )
+    agentic_concurrency_schedule: ConcurrencySchedule = Field(
+        default=(),
+        description="Wall-clock AgentX session targets in the current profiling phase.",
+    )
+
     concurrency: int | None = Field(
         default=None,
         gt=0,
@@ -710,6 +726,11 @@ def _build_profiling_config(
     # AGENTIC_REPLAY reaches the profiling CreditPhaseConfig.
     explicit_mode = getattr(phase, "timing_mode", None)
     timing_mode = explicit_mode or _phase_timing_mode(phase)
+    schedule = getattr(phase, "agentic_concurrency_schedule", ())
+    if schedule and timing_mode != TimingMode.AGENTIC_REPLAY:
+        raise ValueError(
+            "agentic concurrency schedule requires agentic_replay timing mode"
+        )
     return CreditPhaseConfig(
         phase=CreditPhase.PROFILING,
         phase_index=phase_index,
@@ -721,6 +742,7 @@ def _build_profiling_config(
         expected_duration_sec=phase.duration,
         total_expected_requests=phase.requests,
         expected_num_sessions=phase.sessions,
+        agentic_concurrency_schedule=schedule,
         concurrency=phase.concurrency,
         prefill_concurrency=phase.prefill_concurrency,
         request_rate=_phase_request_rate(phase),

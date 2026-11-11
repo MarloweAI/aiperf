@@ -698,6 +698,24 @@ Change `--concurrency`. More lanes = more concurrent trees = more prefill and de
 fan-out bursts. Because timing within each session is fixed to the recording, concurrency is your
 primary load dial.
 
+For a reliability experiment with continuous baseline traffic, add
+`--agentic-concurrency-schedule 900:96,1200:24` to a replay configured with
+`--concurrency 24 --benchmark-duration 1800`. After warmup, the original 24 lanes
+continue for the full profiling phase. At 900 seconds, AgentX adds 72 fresh roots
+from the same dataset sampler, starting at turn 0 without replaying warmup.
+At 1,200 seconds, those added lanes stop admitting new turns and trees. Their
+already-admitted turns finish under the existing retry policy, so actual active
+load can remain above 24 during drain. Baseline sessions keep their conversation
+state and continue recycling throughout the changes.
+
+Schedule offsets use profiling wall time and do not move when the replay idle-gap
+cap advances trace timers. Offsets must increase, stay below the profiling
+duration, and keep targets at or above the initial concurrency. This option
+requires one concurrency-based AgentX profiling phase and cannot combine with
+concurrency ramps or adaptive scaling. The dataset wrapping policy checks the
+highest scheduled target. A scheduled reliability experiment changes the traffic
+pattern and does not establish parity with a fixed-load InferenceX result.
+
 ### Q: Can I sweep concurrency (e.g. `--concurrency 64,128,256`) in one invocation?
 Not under the scenario. A comma-separated `--concurrency` is AIPerf's parameter-sweep syntax —
 without a scenario it runs the variations back-to-back in a single invocation — but combining any

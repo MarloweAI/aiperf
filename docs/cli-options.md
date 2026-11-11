@@ -1121,6 +1121,10 @@ Hard ceiling (seconds) for observed runtime idle time within each AgentX traject
 AGENTIC_REPLAY only: maximum time in seconds the replay may remain globally idle while future requests are scheduled. When no requests are in flight or ready, all pending request timers shift earlier uniformly so the next request arrives within this limit. Per-trace timing is otherwise preserved. None disables the cap.
 <br/>_Constraints: ≥ 0.0_
 
+#### `--agentic-concurrency-schedule` `<str>`
+
+AgentX profiling session targets as seconds:concurrency pairs, for example 900:96,1200:24. Preserves initial lanes and drains removed lanes' HTTP requests.
+
 ### Scenario
 
 #### `--scenario` `<str>`
@@ -2694,6 +2698,10 @@ Hard ceiling (seconds) for observed runtime idle time within each AgentX traject
 
 AGENTIC_REPLAY only: maximum time in seconds the replay may remain globally idle while future requests are scheduled. When no requests are in flight or ready, all pending request timers shift earlier uniformly so the next request arrives within this limit. Per-trace timing is otherwise preserved. None disables the cap.
 <br/>_Constraints: ≥ 0.0_
+
+#### `--agentic-concurrency-schedule` `<str>`
+
+AgentX profiling session targets as seconds:concurrency pairs, for example 900:96,1200:24. Preserves initial lanes and drains removed lanes' HTTP requests.
 
 ### Scenario
 

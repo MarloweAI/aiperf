@@ -392,6 +392,18 @@ class CreditCallbackHandler:
         if handler.handle_credit_result is not None:
             await handler.handle_credit_result(credit_return)
 
+        if self._session_tree_registry is not None:
+            self._session_tree_registry.on_request_returned(
+                credit.effective_root_correlation_id
+            )
+        retired = getattr(handler.strategy, "is_retired_root", None)
+        if (
+            retired is not None
+            and retired(credit.effective_root_correlation_id) is True
+        ):
+            self._finish_return_processing(handler)
+            return
+
         # 4b. DAG child completion hook.
         # When a child session's final turn returns, notify the orchestrator so
         # it can decrement join refcounts, release sticky-routing entries, and

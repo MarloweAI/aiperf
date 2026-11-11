@@ -92,6 +92,7 @@ if TYPE_CHECKING:
     from aiperf.credit.issuer import CreditIssuer
     from aiperf.credit.structs import Credit
     from aiperf.timing.branch_orchestrator import BranchOrchestrator
+    from aiperf.timing.concurrency import ConcurrencyManager
     from aiperf.timing.config import CreditPhaseConfig
     from aiperf.timing.conversation_source import ConversationSource
     from aiperf.timing.phase.lifecycle import PhaseLifecycle
@@ -121,6 +122,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         branch_orchestrator: BranchOrchestrator | None = None,
         session_tree_registry: SessionTreeRegistry | None = None,
         progress: PhaseProgressTracker | None = None,
+        concurrency_manager: ConcurrencyManager | None = None,
         **kwargs,
     ) -> None:
         super().__init__(logger_name="AgenticReplayTiming")
@@ -145,6 +147,16 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         self.lifecycle = lifecycle
         self.branch_orchestrator = branch_orchestrator
         self._progress = progress
+        self._concurrency_manager = concurrency_manager
+        self._load_schedule = getattr(config, "agentic_concurrency_schedule", ())
+        self._load_schedule_enabled = isinstance(self._load_schedule, tuple) and bool(
+            self._load_schedule
+        )
+        self._load_timers: list[asyncio.TimerHandle] = []
+        self._load_schedule_closed = False
+        self._active_lanes: set[int] = set(range(len(conversation_source.trajectories)))
+        self._next_lane = len(conversation_source.trajectories)
+        self._retired_roots: set[str] = set()
         # Per-tree session-slot ledger (agentic replay PROFILING only). When
         # present, a lane's session slot is held until its whole TREE drains
         # (root + every descendant), and recycle of the freed lane is driven by
@@ -387,6 +399,9 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                 )
             )
             return
+        if self._load_schedule_enabled and lane not in self._active_lanes:
+            self._sync_scheduled_session_limit()
+            return
         self.scheduler.schedule_later(0.0, self._dispatch_recycled_on_lane(lane))
 
     async def setup_phase(self) -> None:
@@ -416,6 +431,12 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             and self._cache_warmup_requests_per_lane is not None
         ):
             self.credit_issuer.set_turn_admission(self._admit_cache_warmup_turn)
+        if self.config.phase == CreditPhase.PROFILING and self._load_schedule_enabled:
+            if self._concurrency_manager is None or not self._has_tree_registry:
+                raise ValueError(
+                    "AgentX concurrency schedules require session-tree accounting"
+                )
+            self.credit_issuer.set_turn_admission(self._admit_scheduled_turn)
         if self.config.phase == CreditPhase.PROFILING:
             for trajectory in self.conversation_source.trajectories:
                 self._seed_trajectory_replay_prefix(trajectory)
@@ -439,6 +460,91 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                     f"still count toward concurrency); rootless lanes recycle into a "
                     f"fresh root once their background subagents drain"
                 )
+
+    @property
+    def _runtime_phase_key(self) -> CreditPhase | int:
+        """Match the phase identity used to acquire session slots."""
+        return (
+            self.config.phase_index
+            if self.config.phase_index is not None
+            else self.config.phase
+        )
+
+    def is_retired_root(self, root_correlation_id: str) -> bool:
+        """True when only already-dispatched HTTP work may finish for this tree."""
+        return root_correlation_id in self._retired_roots
+
+    def _admit_scheduled_turn(self, turn: TurnToSend) -> TurnAdmission:
+        """Check again after capacity waits, immediately before HTTP dispatch."""
+        return (
+            TurnAdmission.REJECT
+            if self.is_retired_root(turn.effective_root_correlation_id)
+            else TurnAdmission.ADMIT
+        )
+
+    def _sync_scheduled_session_limit(self) -> None:
+        """Reserve capacity for baseline replacements while removed HTTP work drains."""
+        if self._concurrency_manager is None or self._session_tree_registry is None:
+            return
+        draining = sum(
+            self._session_tree_registry.has_tree(root) for root in self._retired_roots
+        )
+        self._concurrency_manager.set_session_limit(
+            self._runtime_phase_key, len(self._active_lanes) + draining
+        )
+
+    async def _apply_concurrency_target(self, target: int) -> None:
+        """Add fresh roots or retire only added lanes within the same phase."""
+        if self._load_schedule_closed or not self.stop_checker.can_start_new_session():
+            return
+        current = len(self._active_lanes)
+        if target > current:
+            lanes = list(range(self._next_lane, self._next_lane + target - current))
+            self._next_lane += len(lanes)
+            self._active_lanes.update(lanes)
+            self._sync_scheduled_session_limit()
+            await asyncio.gather(
+                *(self._dispatch_recycled_on_lane(lane) for lane in lanes)
+            )
+            return
+        removed = set(sorted(self._active_lanes, reverse=True)[: current - target])
+        self._active_lanes.difference_update(removed)
+        roots = [root for root, lane in self._root_to_lane.items() if lane in removed]
+        self._retired_roots.update(roots)
+        for root in roots:
+            self.scheduler.cancel_pending_group(root)
+            self.credit_issuer.replay_gate.close_root(root)
+            self._session_tree_registry.retire_tree(root)
+            if self.branch_orchestrator is not None:
+                await self.branch_orchestrator.retire_replay_root(root)
+        self._sync_scheduled_session_limit()
+
+    def _start_load_schedule(self) -> None:
+        """Schedule wall-clock boundaries outside replay's idle-gap compression."""
+        if not self._load_schedule_enabled:
+            return
+        loop = asyncio.get_running_loop()
+        elapsed = time.perf_counter() - self.lifecycle.started_at_perf_sec
+        for step in self._load_schedule:
+            self._load_timers.append(
+                loop.call_later(
+                    max(0.0, step.at_seconds - elapsed),
+                    self._schedule_load_target,
+                    step.concurrency,
+                )
+            )
+
+    def _schedule_load_target(self, target: int) -> None:
+        """Keep boundary work under the existing phase task cancellation owner."""
+        if not self._load_schedule_closed:
+            self.scheduler.execute_async(self._apply_concurrency_target(target))
+
+    def stop_load_schedule(self) -> None:
+        """Cancel future boundaries on phase cutoff, failure or teardown."""
+        self._load_schedule_closed = True
+        for handle in self._load_timers:
+            handle.cancel()
+        self._load_timers.clear()
 
     def _cache_warmup_lane(self, turn_or_credit: TurnToSend | Credit) -> int:
         """Resolve a warmup turn or credit to its stable trajectory lane."""
@@ -976,6 +1082,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
 
     async def finalize_phase(self) -> None:
         """Persist the drained accelerated-warmup DAG for profiling."""
+        self.stop_load_schedule()
         if self._system_idle_gap_cap_seconds is not None:
             self._cancel_system_idle_watchdog()
             self.scheduler.set_drain_observer(None)
@@ -1348,6 +1455,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         serializing over N credit round-trips. Subsequent turns and
         recycle-pool sessions are dispatched from handle_credit_return.
         """
+        self._start_load_schedule()
         phase_t0_offset_ms = self._profiling_phase_t0_offset_ms()
         spread_s = self._profiling_spread_seconds()
         mode = "burst" if self._burst_phase_starts else "spread"
@@ -1640,6 +1748,8 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         warmed). No-op during cooldown -- in-flight returns must not start new
         sessions -- or when the sampler yields no spawnable root.
         """
+        if self._load_schedule_enabled and lane not in self._active_lanes:
+            return
         if not self.stop_checker.can_start_new_session():
             return
 
