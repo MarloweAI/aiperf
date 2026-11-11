@@ -831,3 +831,37 @@ class TestShutdownDeliveryGrace:
         monkeypatch.setattr(Environment.API_SERVER, "POST_COMPLETE_GRACE", 7.0)
         sleeps = await self._drive_stop(system_controller, monkeypatch)
         assert sleeps[0] == 7.0
+
+
+@pytest.mark.asyncio
+async def test_all_failed_requests_retain_summary_export(
+    system_controller: SystemController,
+) -> None:
+    """An all-error reliability run must retain independent counters and its window."""
+    system_controller._profile_results = ProcessRecordsResult(
+        results=ProfileResults(
+            records=[
+                MetricResult(
+                    tag="error_request_count", header="Errors", unit="requests", avg=2
+                )
+            ],
+            completed=2,
+            start_ns=1,
+            end_ns=2,
+            successful_request_count=0,
+            error_request_count=2,
+        )
+    )
+    system_controller._print_exit_errors_and_log_file = MagicMock()
+    system_controller._print_cli_command = MagicMock()
+    system_controller._print_benchmark_duration = MagicMock()
+    system_controller._print_exported_file_infos = MagicMock()
+    system_controller._print_log_file_info = MagicMock()
+    with patch("aiperf.controller.system_controller.ExporterManager") as manager:
+        manager.return_value.export_data = AsyncMock()
+        manager.return_value.export_console = AsyncMock()
+        await system_controller._print_post_benchmark_info_and_metrics()
+        manager.return_value.export_data.assert_awaited_once()
+    assert any(
+        error.operation == "export_results" for error in system_controller._exit_errors
+    )

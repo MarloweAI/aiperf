@@ -234,7 +234,7 @@ class CLIConfig(BaseConfig):
         Field(
             description="Retry a request that fails with HTTP 5xx or 429, a connection error, "
             "or a stream that ends before `data: [DONE]`. The conversation waits for its "
-            "retried turn, and latency and TTFT are measured from the first attempt. "
+            "retried turn. Each HTTP attempt is exported separately with its own latency and TTFT. "
             "For reliability experiments; leave off for performance measurements.",
         ),
         CLIParameter(
@@ -1990,6 +1990,14 @@ class CLIConfig(BaseConfig):
             group=Groups.LOAD_GENERATOR,
         ),
     ] = None
+
+    drain_active_requests: Annotated[
+        bool,
+        Field(
+            description="Stop retries at phase cutoff and let active HTTP attempts finish under their request timeout."
+        ),
+        CLIParameter(name=("--drain-active-requests",), group=Groups.LOAD_GENERATOR),
+    ] = False
 
     benchmark_grace_period: Annotated[
         float,

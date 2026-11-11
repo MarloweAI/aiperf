@@ -164,6 +164,7 @@ LOADGEN_FIELDS: frozenset[str] = frozenset(
         "arrival_smoothness",
         "benchmark_duration",
         "benchmark_grace_period",
+        "drain_active_requests",
         "burst_phase_starts",
         "concurrency",
         "concurrency_ramp_duration",

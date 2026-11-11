@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 _PROF_FIELD_ROUTES: tuple[tuple[str, str], ...] = (
     ("duration", "benchmark_duration"),
     ("grace_period", "benchmark_grace_period"),
+    ("drain_active_requests", "drain_active_requests"),
     ("concurrency", "concurrency"),
     ("prefill_concurrency", "prefill_concurrency"),
     ("requests", "request_count"),

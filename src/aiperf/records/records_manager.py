@@ -65,6 +65,7 @@ from aiperf.common.models import (
     TimesliceResult,
     WorkerProcessingStats,
 )
+from aiperf.common.models.credit_models import HttpAttemptCounts, HttpAttemptSummary
 from aiperf.common.scenario.registry import get_scenario
 from aiperf.common.types import MetricTagT
 from aiperf.common.utils import yield_to_event_loop
@@ -1594,6 +1595,46 @@ class RecordsManager(PullClientMixin, BaseComponentService):
         if result is not None:
             result.avg = value
 
+    @staticmethod
+    def _http_attempt_summary(
+        stats: PhaseRecordsStats, cancelled: bool
+    ) -> HttpAttemptSummary | None:
+        """Export independent worker counts and phase boundaries for reconciliation."""
+        counts = stats.http_attempts
+        if not isinstance(counts, HttpAttemptCounts):
+            return None
+        return HttpAttemptSummary(
+            **counts.model_dump(),
+            start_ns=stats.start_ns,
+            end_ns=stats.requests_end_ns,
+            complete=(
+                not cancelled
+                and not stats.was_cancelled
+                and stats.final_requests_completed is not None
+                and stats.final_requests_cancelled is not None
+                and stats.final_requests_completed + stats.final_requests_cancelled
+                == stats.final_requests_sent
+                and counts.issued == counts.completed + counts.cancelled
+                and stats.final_records_expected == counts.issued
+                and stats.final_records_expected
+                == stats.success_records + stats.error_records
+            ),
+        )
+
+    @staticmethod
+    def _warmup_validity(stats: PhaseRecordsStats) -> bool | None:
+        """Require completed warmup credits; intermediate failed retries remain records."""
+        if stats.start_ns is None:
+            return None
+        if stats.requests_end_ns is None or stats.final_requests_sent is None:
+            return None
+        return (
+            not stats.was_cancelled
+            and stats.final_requests_completed == stats.final_requests_sent
+            and stats.final_requests_cancelled == 0
+            and stats.final_request_errors == 0
+        )
+
     def _create_result_stats_for_phase(self, phase: CreditPhase) -> PhaseRecordsStats:
         if self._has_multiple_phase_instances(phase):
             return self._records_tracker.create_aggregate_stats_for_phase(phase)
@@ -2134,6 +2175,14 @@ class RecordsManager(PullClientMixin, BaseComponentService):
                 end_ns=phase_stats.requests_end_ns or time.time_ns(),
                 error_summary=self._error_tracker.get_error_summary_for_phase(phase),
                 was_cancelled=cancelled,
+                http_attempts=RecordsManager._http_attempt_summary(
+                    phase_stats, cancelled
+                ),
+                warmup_valid=RecordsManager._warmup_validity(
+                    RecordsManager._create_result_stats_for_phase(
+                        self, CreditPhase.WARMUP
+                    )
+                ),
                 successful_request_count=phase_stats.success_records,
                 error_request_count=phase_stats.error_records,
                 branch_stats=self._latest_branch_stats

@@ -205,6 +205,8 @@ class TestAioHttpClient:
 
             record = await aiohttp_client.post_request("http://test.com", "{}", {})
 
+            assert record.end_perf_ns is not None
+            assert record.end_perf_ns >= record.start_perf_ns
             assert_error_request_record(
                 record,
                 expected_error_code=status_code,

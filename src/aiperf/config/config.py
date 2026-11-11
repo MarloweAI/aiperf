@@ -32,6 +32,7 @@ Example Usage:
 from __future__ import annotations
 
 import difflib
+import math
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import ConfigDict, Field, PrivateAttr, field_validator, model_validator
@@ -623,6 +624,17 @@ class BenchmarkConfig(BaseConfig, BenchmarkHelpersMixin):
         """
         if self.tokenizer is None:
             self.tokenizer = TokenizerConfig()
+        return self
+
+    @model_validator(mode="after")
+    def validate_active_request_drain_timeout(self) -> Self:
+        """Draining active HTTP attempts requires a finite transport deadline."""
+        if any(phase.drain_active_requests for phase in self.phases) and (
+            not math.isfinite(self.endpoint.timeout) or self.endpoint.timeout <= 0
+        ):
+            raise ValueError(
+                "drain_active_requests requires a finite positive endpoint.timeout"
+            )
         return self
 
     @model_validator(mode="after")

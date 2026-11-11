@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
+import uuid
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -92,7 +95,7 @@ def mark_incomplete_stream(record: RequestRecord) -> None:
 
 
 def _once(
-    callback: FirstTokenCallback | None, first: RequestRecord
+    callback: FirstTokenCallback | None, first: RequestRecord | None = None
 ) -> FirstTokenCallback | None:
     """Report a request's first token once across its attempts.
 
@@ -102,7 +105,9 @@ def _once(
     """
     if callback is None:
         return None
-    reported = any(isinstance(message, SSEMessage) for message in first.responses)
+    reported = first is not None and any(
+        isinstance(message, SSEMessage) for message in first.responses
+    )
 
     async def wrapper(ttft_ns: int, message: SSEMessage) -> bool:
         nonlocal reported
@@ -186,6 +191,7 @@ class InferenceClient(AIPerfLifecycleMixin):
         self,
         request_info: RequestInfo,
         first_token_callback: FirstTokenCallback | None = None,
+        attempt_started: Callable[[], None] | None = None,
     ) -> RequestRecord:
         """Send request via transport.
 
@@ -232,6 +238,8 @@ class InferenceClient(AIPerfLifecycleMixin):
             wire_payload = formatted_payload if is_multipart else encoded
         else:
             request_info.payload_bytes = formatted_payload
+        if attempt_started is not None:
+            attempt_started()
         return await self.transport.send_request(
             request_info,
             payload=wire_payload,
@@ -242,6 +250,7 @@ class InferenceClient(AIPerfLifecycleMixin):
         self,
         request_info: RequestInfo,
         first_token_callback: FirstTokenCallback | None = None,
+        attempt_started: Callable[[], None] | None = None,
     ) -> RequestRecord:
         """Send request to transport and handle exceptions.
 
@@ -259,7 +268,9 @@ class InferenceClient(AIPerfLifecycleMixin):
 
             # Transport handles cancellation internally (cancel_after_ns is in request_info)
             result = await self._send_request_to_transport(
-                request_info=request_info, first_token_callback=first_token_callback
+                request_info=request_info,
+                first_token_callback=first_token_callback,
+                attempt_started=attempt_started,
             )
 
             if self.is_debug_enabled:
@@ -284,77 +295,112 @@ class InferenceClient(AIPerfLifecycleMixin):
         self,
         request_info: RequestInfo,
         first_token_callback: FirstTokenCallback | None = None,
+        *,
+        attempt_callback: Callable[[RequestRecord], Awaitable[None]] | None = None,
+        attempt_started: Callable[[], None] | None = None,
+        retry_allowed: Callable[[], bool] | None = None,
+        retry_stop_event: asyncio.Event | None = None,
     ) -> RequestRecord:
-        """Send a request to the inference API. Will return an error record if the call fails.
+        """Send measured HTTP attempts and redact transport context on every exit."""
+        try:
+            return await self._send_attempts(
+                request_info,
+                first_token_callback,
+                attempt_callback=attempt_callback,
+                attempt_started=attempt_started,
+                retry_allowed=retry_allowed,
+                retry_stop_event=retry_stop_event,
+            )
+        finally:
+            request_info.endpoint_headers = (
+                redact_headers(request_info.endpoint_headers) or {}
+            )
 
-        Args:
-            request_info: The request information.
-            first_token_callback: Optional callback fired on first SSE message with ttft_ns
+    async def _send_attempts(
+        self,
+        request_info: RequestInfo,
+        first_token_callback: FirstTokenCallback | None = None,
+        *,
+        attempt_callback: Callable[[RequestRecord], Awaitable[None]] | None = None,
+        attempt_started: Callable[[], None] | None = None,
+        retry_allowed: Callable[[], bool] | None = None,
+        retry_stop_event: asyncio.Event | None = None,
+    ) -> RequestRecord:
+        """Measure and emit every transport invocation before considering a retry.
 
-        Returns:
-            RequestRecord containing the response data and metadata.
+        Retries keep conversation metadata for debugging, but receive a fresh
+        wire request identifier and transport timestamps. The first-token
+        callback releases one scheduling credit and therefore fires only once.
         """
         if not request_info.turns and not request_info.payload_bytes:
             raise ValueError(
                 f"RequestInfo has no turns (credit_num={request_info.credit_num}, "
                 f"conversation_id={request_info.conversation_id})"
             )
-        if self.is_trace_enabled and request_info.turns:
-            self.trace(f"Calling inference API for turn: {request_info.turns[-1]}")
-        record = await self._send_request_internal(request_info, first_token_callback)
-        if self.model_endpoint.endpoint.retry_failed_requests:
-            record = await self._retry_until_final(
-                record, request_info, first_token_callback
-            )
-        # Redact sensitive headers on the request_info now that the transport has
-        # consumed them.  This prevents raw credentials from flowing back through
-        # ZMQ messages (which are TRACE-logged as serialised JSON / repr).
-        request_info.endpoint_headers = (
-            redact_headers(request_info.endpoint_headers) or {}
-        )
-        return self._finalize_request_record(record=record, request_info=request_info)
-
-    async def _retry_until_final(
-        self,
-        record: RequestRecord,
-        request_info: RequestInfo,
-        first_token_callback: FirstTokenCallback | None,
-    ) -> RequestRecord:
-        """Resend a failed request, as a user would, until it succeeds or stops.
-
-        The request keeps its X-Request-ID across attempts, so every attempt's
-        traces and dispatch records belong to one logical request. The returned
-        record starts at the first attempt, so latency and TTFT include failed
-        attempts and waits. Phase cancellation ends the loop by cancelling the
-        task, including during the wait.
-        """
         endpoint = self.model_endpoint.endpoint
-        first_token_callback = _once(first_token_callback, record)
-        first_start_perf_ns = record.start_perf_ns
-        first_timestamp_ns = record.timestamp_ns
-        retried: list[ErrorDetails] = []
+        callback = _once(first_token_callback)
+        attempt: int = 0
         while True:
+            attempt += 1
+            if attempt > 1:
+                request_info = request_info.model_copy(
+                    update={"x_request_id": str(uuid.uuid4()), "drop_perf_ns": None}
+                )
+            cancelled: bool = False
+            started_ns: int = time.perf_counter_ns()
+            timestamp_ns: int = time.time_ns()
+            try:
+                record = await self._send_request_internal(
+                    request_info, callback, attempt_started
+                )
+            except asyncio.CancelledError as error:
+                cancelled = True
+                record = getattr(error, "request_record", None) or RequestRecord(
+                    timestamp_ns=timestamp_ns,
+                    start_perf_ns=started_ns,
+                    end_perf_ns=time.perf_counter_ns(),
+                    cancellation_perf_ns=time.perf_counter_ns(),
+                    error=ErrorDetails(
+                        type="RequestCancellationError",
+                        message="Request cancelled by external signal",
+                        code=499,
+                    ),
+                )
             if endpoint.streaming and str(endpoint.type) in DONE_TERMINATED_ENDPOINTS:
                 mark_incomplete_stream(record)
-            if not is_retryable_error(record.error):
-                break
-            if endpoint.retry_max_attempts and (
-                len(retried) + 1 >= endpoint.retry_max_attempts
+            record = self._finalize_request_record(
+                record=record, request_info=request_info
+            )
+            if attempt_callback is not None:
+                await attempt_callback(record)
+            if cancelled:
+                raise asyncio.CancelledError
+            if (
+                not endpoint.retry_failed_requests
+                or not is_retryable_error(record.error)
+                or (
+                    endpoint.retry_max_attempts
+                    and attempt >= endpoint.retry_max_attempts
+                )
+                or (retry_allowed is not None and not retry_allowed())
             ):
-                break
-            retried.append(record.error)
+                return record
             self.warning(
                 f"Retrying request {request_info.x_request_id} after attempt "
-                f"{len(retried)} failed: {record.error.type} {record.error.code}"
+                f"{attempt} failed: {record.error.type} {record.error.code}"
             )
-            await asyncio.sleep(endpoint.retry_wait_seconds)
-            record = await self._send_request_internal(
-                request_info, first_token_callback
-            )
-        record.retried_errors = retried
-        record.start_perf_ns = first_start_perf_ns
-        record.timestamp_ns = first_timestamp_ns
-        return record
+            await self._wait_for_retry(retry_stop_event)
+            if retry_allowed is not None and not retry_allowed():
+                return record
+
+    async def _wait_for_retry(self, stop_event: asyncio.Event | None) -> None:
+        """Let a phase cutoff interrupt backoff without cancelling active HTTP work."""
+        delay = self.model_endpoint.endpoint.retry_wait_seconds
+        if stop_event is None:
+            await asyncio.sleep(delay)
+        else:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(stop_event.wait(), timeout=delay)
 
     @staticmethod
     def _enrich_request_record(

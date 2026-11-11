@@ -69,6 +69,8 @@ from aiperf.config.adaptive_scale_phase import (
 )
 from aiperf.credit.messages import (
     CancelCredits,
+    CreditPhaseSendingCompleteMessage,
+    CreditPhaseStartMessage,
     CreditReturn,
     FirstToken,
     RouterToWorkerMessage,
@@ -548,6 +550,9 @@ class Worker(BaseComponentService, ProcessHealthMixin):
         self.task_stats: WorkerTaskStats = WorkerTaskStats()
 
         self.credit_tasks: dict[int, asyncio.Task] = {}
+        self._retry_stops: dict[tuple[CreditPhase, int | None], asyncio.Event] = {}
+        self._retry_deadlines: dict[tuple[CreditPhase, int | None], int] = {}
+        self._retry_drain_phases: set[tuple[CreditPhase, int | None]] = set()
 
         self.inference_results_push_client: PushClientProtocol = (
             self.comms.create_push_client(
@@ -776,6 +781,11 @@ class Worker(BaseComponentService, ProcessHealthMixin):
             request_latency_ns=credit_context.request_latency_ns,
             inter_token_latency_ns=credit_context.inter_token_latency_ns,
             output_sequence_length=credit_context.output_sequence_length,
+            records_emitted=credit_context.records_emitted,
+            http_attempts_issued=credit_context.http_attempts_issued,
+            http_attempts_completed=credit_context.http_attempts_completed,
+            http_attempts_cancelled=credit_context.http_attempts_cancelled,
+            http_attempts_errors=credit_context.http_attempts_errors,
             worker_id=self.service_id,
         )
         self.execute_async(self.credit_return_push_client.send(credit_return))
@@ -854,6 +864,11 @@ class Worker(BaseComponentService, ProcessHealthMixin):
                 request_latency_ns=credit_context.request_latency_ns,
                 inter_token_latency_ns=credit_context.inter_token_latency_ns,
                 output_sequence_length=credit_context.output_sequence_length,
+                records_emitted=credit_context.records_emitted,
+                http_attempts_issued=credit_context.http_attempts_issued,
+                http_attempts_completed=credit_context.http_attempts_completed,
+                http_attempts_cancelled=credit_context.http_attempts_cancelled,
+                http_attempts_errors=credit_context.http_attempts_errors,
                 worker_id=self.service_id,
             )
             await self.credit_return_push_client.send(credit_return)
@@ -914,6 +929,7 @@ class Worker(BaseComponentService, ProcessHealthMixin):
         # request_errors log line.
         credit_context.error = error
         credit_context.record_emitted = True
+        credit_context.records_emitted = (credit_context.records_emitted or 0) + 1
 
     async def _process_credit(self, credit_context: CreditContext) -> None:
         """Process a credit (1 credit = 1 request).
@@ -1107,12 +1123,10 @@ class Worker(BaseComponentService, ProcessHealthMixin):
                 )
             ],
         )
-        record = await self.inference_client.send_request(
-            request_info, first_token_callback=first_token_callback
+        record = await self._send_credit_request(
+            credit_context, request_info, first_token_callback
         )
         self._populate_response_metrics(credit_context, record)
-        await self._send_inference_result_message(record)
-        credit_context.record_emitted = True
         if record.error is not None:
             credit_context.error = record.error
         return True
@@ -1406,14 +1420,90 @@ class Worker(BaseComponentService, ProcessHealthMixin):
         (``_finalize_session_response``) from a single response-processing pass.
         """
         self.task_stats.total += 1
-        record = await self.inference_client.send_request(
-            request_info, first_token_callback=first_token_callback
+        record = await self._send_credit_request(
+            credit_context, request_info, first_token_callback
         )
-        await self._send_inference_result_message(record)
-        credit_context.record_emitted = True
         if record.error is not None:
             credit_context.error = record.error
         return record
+
+    @on_message(MessageType.CREDIT_PHASE_START)
+    async def _on_attempt_phase_start(self, message: CreditPhaseStartMessage) -> None:
+        """Set a wall-clock retry deadline before credits enter a drain phase."""
+        if not message.config.drain_active_requests:
+            return
+        key = (message.stats.phase, message.stats.phase_index)
+        self._retry_stops.setdefault(key, asyncio.Event())
+        self._retry_drain_phases.add(key)
+        if (
+            message.config.expected_duration_sec is not None
+            and message.stats.start_ns is not None
+        ):
+            self._retry_deadlines[key] = message.stats.start_ns + int(
+                message.config.expected_duration_sec * 1_000_000_000
+            )
+            asyncio.get_running_loop().call_later(
+                max(0.0, (self._retry_deadlines[key] - time.time_ns()) / 1_000_000_000),
+                self._retry_stops[key].set,
+            )
+
+    @on_message(MessageType.CREDIT_PHASE_SENDING_COMPLETE)
+    async def _on_attempt_phase_cutoff(
+        self, message: CreditPhaseSendingCompleteMessage
+    ) -> None:
+        """Wake retry waits when an opted-in phase stops issuing work."""
+        key = (message.stats.phase, message.stats.phase_index)
+        if key in self._retry_drain_phases and (
+            key not in self._retry_deadlines
+            or time.time_ns() >= self._retry_deadlines[key]
+        ):
+            self._retry_stops[key].set()
+
+    async def _send_credit_request(
+        self,
+        credit_context: CreditContext,
+        request_info: RequestInfo,
+        first_token_callback: FirstTokenCallback | None,
+    ) -> RequestRecord:
+        """Publish each attempt through the ordinary record processor pipeline."""
+        key = (credit_context.credit.phase, credit_context.credit.phase_index)
+        stop = self._retry_stops.setdefault(key, asyncio.Event())
+
+        def retry_allowed() -> bool:
+            return (stop is None or not stop.is_set()) and (
+                key not in self._retry_deadlines
+                or time.time_ns() < self._retry_deadlines[key]
+            )
+
+        def started() -> None:
+            credit_context.http_attempts_issued += 1
+
+        async def emit(record: RequestRecord) -> None:
+            cancelled = record.cancellation_perf_ns is not None
+            if cancelled:
+                credit_context.http_attempts_cancelled += 1
+            else:
+                credit_context.http_attempts_completed += 1
+                credit_context.http_attempts_errors += int(record.error is not None)
+            if credit_context.record_emitted:
+                self.task_stats.total += 1
+            await self._send_inference_result_message(record)
+            credit_context.record_emitted = True
+            credit_context.records_emitted = (credit_context.records_emitted or 0) + 1
+
+        # Explicit zero distinguishes an unstarted cancellation from legacy
+        # workers, whose returns imply one record per completed credit.
+        credit_context.records_emitted = 0
+        if key in self._retry_deadlines and not retry_allowed():
+            raise asyncio.CancelledError("Phase deadline elapsed before HTTP dispatch")
+        return await self.inference_client.send_request(
+            request_info,
+            first_token_callback=first_token_callback,
+            attempt_callback=emit,
+            attempt_started=started,
+            retry_allowed=retry_allowed,
+            retry_stop_event=stop,
+        )
 
     def _create_request_info(
         self,
@@ -1613,6 +1703,7 @@ class Worker(BaseComponentService, ProcessHealthMixin):
                 )
             )
             credit_context.record_emitted = True
+            credit_context.records_emitted = (credit_context.records_emitted or 0) + 1
             raise ValueError(f"Failed to retrieve conversation response: {error}")
 
         return conversation_response.conversation

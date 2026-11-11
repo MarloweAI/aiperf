@@ -929,6 +929,38 @@
                   "additionalProperties": false,
                   "description": "Concurrency-controlled load: dispatch immediately when a slot opens.\n\nPrimary control is ``concurrency`` (defaults to 1).\nNo rate limiting -- pure concurrency-based throughput.",
                   "properties": {
+                    "drainActiveRequests": {
+                      "default": false,
+                      "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                      "title": "Drainactiverequests",
+                      "type": "boolean"
+                    },
+                    "gracePeriod": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                      "ge": 0,
+                      "title": "Graceperiod"
+                    },
+                    "cancellation": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/CancellationConfig"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Request cancellation testing configuration."
+                    },
                     "adaptiveScale": {
                       "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                       "title": "Adaptivescale",
@@ -1177,32 +1209,6 @@
                       "default": null,
                       "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                     },
-                    "gracePeriod": {
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "default": null,
-                      "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                      "ge": 0,
-                      "title": "Graceperiod"
-                    },
-                    "cancellation": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/$defs/CancellationConfig"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "default": null,
-                      "description": "Request cancellation testing configuration."
-                    },
                     "sla": {
                       "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                       "title": "Sla",
@@ -1370,6 +1376,38 @@
                   "additionalProperties": false,
                   "description": "Poisson-distributed request arrivals at the target rate.",
                   "properties": {
+                    "drainActiveRequests": {
+                      "default": false,
+                      "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                      "title": "Drainactiverequests",
+                      "type": "boolean"
+                    },
+                    "gracePeriod": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                      "ge": 0,
+                      "title": "Graceperiod"
+                    },
+                    "cancellation": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/CancellationConfig"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Request cancellation testing configuration."
+                    },
                     "adaptiveScale": {
                       "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                       "title": "Adaptivescale",
@@ -1625,32 +1663,6 @@
                       "default": null,
                       "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                     },
-                    "gracePeriod": {
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "default": null,
-                      "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                      "ge": 0,
-                      "title": "Graceperiod"
-                    },
-                    "cancellation": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/$defs/CancellationConfig"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "default": null,
-                      "description": "Request cancellation testing configuration."
-                    },
                     "sla": {
                       "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                       "title": "Sla",
@@ -1886,6 +1898,38 @@
                   "additionalProperties": false,
                   "description": "Gamma-distributed request arrivals with configurable smoothness.",
                   "properties": {
+                    "drainActiveRequests": {
+                      "default": false,
+                      "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                      "title": "Drainactiverequests",
+                      "type": "boolean"
+                    },
+                    "gracePeriod": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                      "ge": 0,
+                      "title": "Graceperiod"
+                    },
+                    "cancellation": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/CancellationConfig"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Request cancellation testing configuration."
+                    },
                     "adaptiveScale": {
                       "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                       "title": "Adaptivescale",
@@ -2141,32 +2185,6 @@
                       "default": null,
                       "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                     },
-                    "gracePeriod": {
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "default": null,
-                      "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                      "ge": 0,
-                      "title": "Graceperiod"
-                    },
-                    "cancellation": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/$defs/CancellationConfig"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "default": null,
-                      "description": "Request cancellation testing configuration."
-                    },
                     "sla": {
                       "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                       "title": "Sla",
@@ -2416,6 +2434,38 @@
                   "additionalProperties": false,
                   "description": "Constant-rate request arrivals (fixed inter-arrival time).",
                   "properties": {
+                    "drainActiveRequests": {
+                      "default": false,
+                      "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                      "title": "Drainactiverequests",
+                      "type": "boolean"
+                    },
+                    "gracePeriod": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                      "ge": 0,
+                      "title": "Graceperiod"
+                    },
+                    "cancellation": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/CancellationConfig"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Request cancellation testing configuration."
+                    },
                     "adaptiveScale": {
                       "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                       "title": "Adaptivescale",
@@ -2671,32 +2721,6 @@
                       "default": null,
                       "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                     },
-                    "gracePeriod": {
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "default": null,
-                      "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                      "ge": 0,
-                      "title": "Graceperiod"
-                    },
-                    "cancellation": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/$defs/CancellationConfig"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "default": null,
-                      "description": "Request cancellation testing configuration."
-                    },
                     "sla": {
                       "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                       "title": "Sla",
@@ -2932,6 +2956,38 @@
                   "additionalProperties": false,
                   "description": "N concurrent users sharing a global request rate.\n\nRequires multi-turn conversations. Each user gets a proportional\nshare of the global ``rate``.",
                   "properties": {
+                    "drainActiveRequests": {
+                      "default": false,
+                      "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                      "title": "Drainactiverequests",
+                      "type": "boolean"
+                    },
+                    "gracePeriod": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                      "ge": 0,
+                      "title": "Graceperiod"
+                    },
+                    "cancellation": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/CancellationConfig"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Request cancellation testing configuration."
+                    },
                     "adaptiveScale": {
                       "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                       "title": "Adaptivescale",
@@ -3187,32 +3243,6 @@
                       "default": null,
                       "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                     },
-                    "gracePeriod": {
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "default": null,
-                      "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                      "ge": 0,
-                      "title": "Graceperiod"
-                    },
-                    "cancellation": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/$defs/CancellationConfig"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "default": null,
-                      "description": "Request cancellation testing configuration."
-                    },
                     "sla": {
                       "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                       "title": "Sla",
@@ -3428,6 +3458,38 @@
                   "additionalProperties": false,
                   "description": "Replay requests at predetermined timestamps from a trace dataset.\n\nStop condition not required -- the trace dataset determines when the\nphase ends.",
                   "properties": {
+                    "drainActiveRequests": {
+                      "default": false,
+                      "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                      "title": "Drainactiverequests",
+                      "type": "boolean"
+                    },
+                    "gracePeriod": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                      "ge": 0,
+                      "title": "Graceperiod"
+                    },
+                    "cancellation": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/CancellationConfig"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Request cancellation testing configuration."
+                    },
                     "adaptiveScale": {
                       "description": "Enable single-run adaptive scale control for this phase. Fixed-schedule phases only accept disabled adaptive-scale no-op blocks.",
                       "title": "Adaptivescale",
@@ -3679,32 +3741,6 @@
                       ],
                       "default": null,
                       "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
-                    },
-                    "gracePeriod": {
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "default": null,
-                      "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                      "ge": 0,
-                      "title": "Graceperiod"
-                    },
-                    "cancellation": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/$defs/CancellationConfig"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "default": null,
-                      "description": "Request cancellation testing configuration."
                     },
                     "sla": {
                       "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
@@ -4823,6 +4859,38 @@
               "additionalProperties": false,
               "description": "Concurrency-controlled load: dispatch immediately when a slot opens.\n\nPrimary control is ``concurrency`` (defaults to 1).\nNo rate limiting -- pure concurrency-based throughput.",
               "properties": {
+                "drainActiveRequests": {
+                  "default": false,
+                  "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                  "title": "Drainactiverequests",
+                  "type": "boolean"
+                },
+                "gracePeriod": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                  "ge": 0,
+                  "title": "Graceperiod"
+                },
+                "cancellation": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/CancellationConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Request cancellation testing configuration."
+                },
                 "adaptiveScale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                   "title": "Adaptivescale",
@@ -5071,32 +5139,6 @@
                   "default": null,
                   "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                 },
-                "gracePeriod": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                  "ge": 0,
-                  "title": "Graceperiod"
-                },
-                "cancellation": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/CancellationConfig"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Request cancellation testing configuration."
-                },
                 "sla": {
                   "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                   "title": "Sla",
@@ -5264,6 +5306,38 @@
               "additionalProperties": false,
               "description": "Poisson-distributed request arrivals at the target rate.",
               "properties": {
+                "drainActiveRequests": {
+                  "default": false,
+                  "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                  "title": "Drainactiverequests",
+                  "type": "boolean"
+                },
+                "gracePeriod": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                  "ge": 0,
+                  "title": "Graceperiod"
+                },
+                "cancellation": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/CancellationConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Request cancellation testing configuration."
+                },
                 "adaptiveScale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                   "title": "Adaptivescale",
@@ -5519,32 +5593,6 @@
                   "default": null,
                   "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                 },
-                "gracePeriod": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                  "ge": 0,
-                  "title": "Graceperiod"
-                },
-                "cancellation": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/CancellationConfig"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Request cancellation testing configuration."
-                },
                 "sla": {
                   "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                   "title": "Sla",
@@ -5780,6 +5828,38 @@
               "additionalProperties": false,
               "description": "Gamma-distributed request arrivals with configurable smoothness.",
               "properties": {
+                "drainActiveRequests": {
+                  "default": false,
+                  "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                  "title": "Drainactiverequests",
+                  "type": "boolean"
+                },
+                "gracePeriod": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                  "ge": 0,
+                  "title": "Graceperiod"
+                },
+                "cancellation": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/CancellationConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Request cancellation testing configuration."
+                },
                 "adaptiveScale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                   "title": "Adaptivescale",
@@ -6035,32 +6115,6 @@
                   "default": null,
                   "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                 },
-                "gracePeriod": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                  "ge": 0,
-                  "title": "Graceperiod"
-                },
-                "cancellation": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/CancellationConfig"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Request cancellation testing configuration."
-                },
                 "sla": {
                   "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                   "title": "Sla",
@@ -6310,6 +6364,38 @@
               "additionalProperties": false,
               "description": "Constant-rate request arrivals (fixed inter-arrival time).",
               "properties": {
+                "drainActiveRequests": {
+                  "default": false,
+                  "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                  "title": "Drainactiverequests",
+                  "type": "boolean"
+                },
+                "gracePeriod": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                  "ge": 0,
+                  "title": "Graceperiod"
+                },
+                "cancellation": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/CancellationConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Request cancellation testing configuration."
+                },
                 "adaptiveScale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                   "title": "Adaptivescale",
@@ -6565,32 +6651,6 @@
                   "default": null,
                   "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                 },
-                "gracePeriod": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                  "ge": 0,
-                  "title": "Graceperiod"
-                },
-                "cancellation": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/CancellationConfig"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Request cancellation testing configuration."
-                },
                 "sla": {
                   "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                   "title": "Sla",
@@ -6826,6 +6886,38 @@
               "additionalProperties": false,
               "description": "N concurrent users sharing a global request rate.\n\nRequires multi-turn conversations. Each user gets a proportional\nshare of the global ``rate``.",
               "properties": {
+                "drainActiveRequests": {
+                  "default": false,
+                  "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                  "title": "Drainactiverequests",
+                  "type": "boolean"
+                },
+                "gracePeriod": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                  "ge": 0,
+                  "title": "Graceperiod"
+                },
+                "cancellation": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/CancellationConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Request cancellation testing configuration."
+                },
                 "adaptiveScale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                   "title": "Adaptivescale",
@@ -7081,32 +7173,6 @@
                   "default": null,
                   "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                 },
-                "gracePeriod": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                  "ge": 0,
-                  "title": "Graceperiod"
-                },
-                "cancellation": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/CancellationConfig"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Request cancellation testing configuration."
-                },
                 "sla": {
                   "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                   "title": "Sla",
@@ -7322,6 +7388,38 @@
               "additionalProperties": false,
               "description": "Replay requests at predetermined timestamps from a trace dataset.\n\nStop condition not required -- the trace dataset determines when the\nphase ends.",
               "properties": {
+                "drainActiveRequests": {
+                  "default": false,
+                  "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                  "title": "Drainactiverequests",
+                  "type": "boolean"
+                },
+                "gracePeriod": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                  "ge": 0,
+                  "title": "Graceperiod"
+                },
+                "cancellation": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/CancellationConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Request cancellation testing configuration."
+                },
                 "adaptiveScale": {
                   "description": "Enable single-run adaptive scale control for this phase. Fixed-schedule phases only accept disabled adaptive-scale no-op blocks.",
                   "title": "Adaptivescale",
@@ -7573,32 +7671,6 @@
                   ],
                   "default": null,
                   "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
-                },
-                "gracePeriod": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                  "ge": 0,
-                  "title": "Graceperiod"
-                },
-                "cancellation": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/CancellationConfig"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Request cancellation testing configuration."
                 },
                 "sla": {
                   "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
@@ -7814,6 +7886,38 @@
               "additionalProperties": false,
               "description": "Concurrency-controlled load: dispatch immediately when a slot opens.\n\nPrimary control is ``concurrency`` (defaults to 1).\nNo rate limiting -- pure concurrency-based throughput.",
               "properties": {
+                "drainActiveRequests": {
+                  "default": false,
+                  "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                  "title": "Drainactiverequests",
+                  "type": "boolean"
+                },
+                "gracePeriod": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                  "ge": 0,
+                  "title": "Graceperiod"
+                },
+                "cancellation": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/CancellationConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Request cancellation testing configuration."
+                },
                 "adaptiveScale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                   "title": "Adaptivescale",
@@ -8062,32 +8166,6 @@
                   "default": null,
                   "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                 },
-                "gracePeriod": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                  "ge": 0,
-                  "title": "Graceperiod"
-                },
-                "cancellation": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/CancellationConfig"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Request cancellation testing configuration."
-                },
                 "sla": {
                   "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                   "title": "Sla",
@@ -8255,6 +8333,38 @@
               "additionalProperties": false,
               "description": "Poisson-distributed request arrivals at the target rate.",
               "properties": {
+                "drainActiveRequests": {
+                  "default": false,
+                  "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                  "title": "Drainactiverequests",
+                  "type": "boolean"
+                },
+                "gracePeriod": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                  "ge": 0,
+                  "title": "Graceperiod"
+                },
+                "cancellation": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/CancellationConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Request cancellation testing configuration."
+                },
                 "adaptiveScale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                   "title": "Adaptivescale",
@@ -8510,32 +8620,6 @@
                   "default": null,
                   "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                 },
-                "gracePeriod": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                  "ge": 0,
-                  "title": "Graceperiod"
-                },
-                "cancellation": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/CancellationConfig"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Request cancellation testing configuration."
-                },
                 "sla": {
                   "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                   "title": "Sla",
@@ -8771,6 +8855,38 @@
               "additionalProperties": false,
               "description": "Gamma-distributed request arrivals with configurable smoothness.",
               "properties": {
+                "drainActiveRequests": {
+                  "default": false,
+                  "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                  "title": "Drainactiverequests",
+                  "type": "boolean"
+                },
+                "gracePeriod": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                  "ge": 0,
+                  "title": "Graceperiod"
+                },
+                "cancellation": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/CancellationConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Request cancellation testing configuration."
+                },
                 "adaptiveScale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                   "title": "Adaptivescale",
@@ -9026,32 +9142,6 @@
                   "default": null,
                   "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                 },
-                "gracePeriod": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                  "ge": 0,
-                  "title": "Graceperiod"
-                },
-                "cancellation": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/CancellationConfig"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Request cancellation testing configuration."
-                },
                 "sla": {
                   "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                   "title": "Sla",
@@ -9301,6 +9391,38 @@
               "additionalProperties": false,
               "description": "Constant-rate request arrivals (fixed inter-arrival time).",
               "properties": {
+                "drainActiveRequests": {
+                  "default": false,
+                  "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                  "title": "Drainactiverequests",
+                  "type": "boolean"
+                },
+                "gracePeriod": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                  "ge": 0,
+                  "title": "Graceperiod"
+                },
+                "cancellation": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/CancellationConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Request cancellation testing configuration."
+                },
                 "adaptiveScale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                   "title": "Adaptivescale",
@@ -9556,32 +9678,6 @@
                   "default": null,
                   "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                 },
-                "gracePeriod": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                  "ge": 0,
-                  "title": "Graceperiod"
-                },
-                "cancellation": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/CancellationConfig"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Request cancellation testing configuration."
-                },
                 "sla": {
                   "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                   "title": "Sla",
@@ -9817,6 +9913,38 @@
               "additionalProperties": false,
               "description": "N concurrent users sharing a global request rate.\n\nRequires multi-turn conversations. Each user gets a proportional\nshare of the global ``rate``.",
               "properties": {
+                "drainActiveRequests": {
+                  "default": false,
+                  "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                  "title": "Drainactiverequests",
+                  "type": "boolean"
+                },
+                "gracePeriod": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                  "ge": 0,
+                  "title": "Graceperiod"
+                },
+                "cancellation": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/CancellationConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Request cancellation testing configuration."
+                },
                 "adaptiveScale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                   "title": "Adaptivescale",
@@ -10072,32 +10200,6 @@
                   "default": null,
                   "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
                 },
-                "gracePeriod": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                  "ge": 0,
-                  "title": "Graceperiod"
-                },
-                "cancellation": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/CancellationConfig"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Request cancellation testing configuration."
-                },
                 "sla": {
                   "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
                   "title": "Sla",
@@ -10313,6 +10415,38 @@
               "additionalProperties": false,
               "description": "Replay requests at predetermined timestamps from a trace dataset.\n\nStop condition not required -- the trace dataset determines when the\nphase ends.",
               "properties": {
+                "drainActiveRequests": {
+                  "default": false,
+                  "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+                  "title": "Drainactiverequests",
+                  "type": "boolean"
+                },
+                "gracePeriod": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+                  "ge": 0,
+                  "title": "Graceperiod"
+                },
+                "cancellation": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/CancellationConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Request cancellation testing configuration."
+                },
                 "adaptiveScale": {
                   "description": "Enable single-run adaptive scale control for this phase. Fixed-schedule phases only accept disabled adaptive-scale no-op blocks.",
                   "title": "Adaptivescale",
@@ -10564,32 +10698,6 @@
                   ],
                   "default": null,
                   "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}."
-                },
-                "gracePeriod": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-                  "ge": 0,
-                  "title": "Graceperiod"
-                },
-                "cancellation": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/CancellationConfig"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Request cancellation testing configuration."
                 },
                 "sla": {
                   "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
@@ -10939,6 +11047,49 @@
       "additionalProperties": false,
       "description": "Concurrency-controlled load: dispatch immediately when a slot opens.\n\nPrimary control is ``concurrency`` (defaults to 1).\nNo rate limiting -- pure concurrency-based throughput.",
       "properties": {
+        "drainActiveRequests": {
+          "default": false,
+          "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+          "title": "Drainactiverequests",
+          "type": "boolean"
+        },
+        "gracePeriod": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "default": null,
+          "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+          "ge": 0,
+          "title": "Graceperiod",
+          "x-jinja2-supported": true
+        },
+        "cancellation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CancellationConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Request cancellation testing configuration."
+        },
         "adaptiveScale": {
           "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
           "title": "Adaptivescale",
@@ -11394,43 +11545,6 @@
           "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}.",
           "x-jinja2-supported": true
         },
-        "gracePeriod": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "string",
-              "pattern": ".*\\{\\{.*\\}\\}.*",
-              "description": "Jinja2 template (e.g., '{{ variable }}')."
-            },
-            {
-              "type": "string",
-              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
-              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
-            }
-          ],
-          "default": null,
-          "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-          "ge": 0,
-          "title": "Graceperiod",
-          "x-jinja2-supported": true
-        },
-        "cancellation": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CancellationConfig"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Request cancellation testing configuration."
-        },
         "sla": {
           "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
           "title": "Sla",
@@ -11700,6 +11814,49 @@
       "additionalProperties": false,
       "description": "Constant-rate request arrivals (fixed inter-arrival time).",
       "properties": {
+        "drainActiveRequests": {
+          "default": false,
+          "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+          "title": "Drainactiverequests",
+          "type": "boolean"
+        },
+        "gracePeriod": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "default": null,
+          "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+          "ge": 0,
+          "title": "Graceperiod",
+          "x-jinja2-supported": true
+        },
+        "cancellation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CancellationConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Request cancellation testing configuration."
+        },
         "adaptiveScale": {
           "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
           "title": "Adaptivescale",
@@ -12154,43 +12311,6 @@
           "default": null,
           "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}.",
           "x-jinja2-supported": true
-        },
-        "gracePeriod": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "string",
-              "pattern": ".*\\{\\{.*\\}\\}.*",
-              "description": "Jinja2 template (e.g., '{{ variable }}')."
-            },
-            {
-              "type": "string",
-              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
-              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
-            }
-          ],
-          "default": null,
-          "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-          "ge": 0,
-          "title": "Graceperiod",
-          "x-jinja2-supported": true
-        },
-        "cancellation": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CancellationConfig"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Request cancellation testing configuration."
         },
         "sla": {
           "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
@@ -13033,7 +13153,7 @@
         },
         "retryFailedRequests": {
           "default": false,
-          "description": "Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`, the way a user retries. The conversation waits for its retried turn. Latency and TTFT are measured from the first attempt. For reliability experiments; leave off for performance measurements.",
+          "description": "Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`, the way a user retries. Each HTTP attempt is exported separately with its own latency and TTFT. Failed attempts remain errors. For reliability experiments; leave off for performance measurements.",
           "title": "Retryfailedrequests",
           "type": "boolean"
         },
@@ -13775,6 +13895,49 @@
       "additionalProperties": false,
       "description": "Replay requests at predetermined timestamps from a trace dataset.\n\nStop condition not required -- the trace dataset determines when the\nphase ends.",
       "properties": {
+        "drainActiveRequests": {
+          "default": false,
+          "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+          "title": "Drainactiverequests",
+          "type": "boolean"
+        },
+        "gracePeriod": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "default": null,
+          "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+          "ge": 0,
+          "title": "Graceperiod",
+          "x-jinja2-supported": true
+        },
+        "cancellation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CancellationConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Request cancellation testing configuration."
+        },
         "adaptiveScale": {
           "description": "Enable single-run adaptive scale control for this phase. Fixed-schedule phases only accept disabled adaptive-scale no-op blocks.",
           "title": "Adaptivescale",
@@ -14227,43 +14390,6 @@
           "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}.",
           "x-jinja2-supported": true
         },
-        "gracePeriod": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "string",
-              "pattern": ".*\\{\\{.*\\}\\}.*",
-              "description": "Jinja2 template (e.g., '{{ variable }}')."
-            },
-            {
-              "type": "string",
-              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
-              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
-            }
-          ],
-          "default": null,
-          "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-          "ge": 0,
-          "title": "Graceperiod",
-          "x-jinja2-supported": true
-        },
-        "cancellation": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CancellationConfig"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Request cancellation testing configuration."
-        },
         "sla": {
           "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
           "title": "Sla",
@@ -14594,6 +14720,49 @@
       "additionalProperties": false,
       "description": "Gamma-distributed request arrivals with configurable smoothness.",
       "properties": {
+        "drainActiveRequests": {
+          "default": false,
+          "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+          "title": "Drainactiverequests",
+          "type": "boolean"
+        },
+        "gracePeriod": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "default": null,
+          "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+          "ge": 0,
+          "title": "Graceperiod",
+          "x-jinja2-supported": true
+        },
+        "cancellation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CancellationConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Request cancellation testing configuration."
+        },
         "adaptiveScale": {
           "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
           "title": "Adaptivescale",
@@ -15048,43 +15217,6 @@
           "default": null,
           "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}.",
           "x-jinja2-supported": true
-        },
-        "gracePeriod": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "string",
-              "pattern": ".*\\{\\{.*\\}\\}.*",
-              "description": "Jinja2 template (e.g., '{{ variable }}')."
-            },
-            {
-              "type": "string",
-              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
-              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
-            }
-          ],
-          "default": null,
-          "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-          "ge": 0,
-          "title": "Graceperiod",
-          "x-jinja2-supported": true
-        },
-        "cancellation": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CancellationConfig"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Request cancellation testing configuration."
         },
         "sla": {
           "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
@@ -17213,6 +17345,49 @@
       "additionalProperties": false,
       "description": "Poisson-distributed request arrivals at the target rate.",
       "properties": {
+        "drainActiveRequests": {
+          "default": false,
+          "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+          "title": "Drainactiverequests",
+          "type": "boolean"
+        },
+        "gracePeriod": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "default": null,
+          "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+          "ge": 0,
+          "title": "Graceperiod",
+          "x-jinja2-supported": true
+        },
+        "cancellation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CancellationConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Request cancellation testing configuration."
+        },
         "adaptiveScale": {
           "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
           "title": "Adaptivescale",
@@ -17667,43 +17842,6 @@
           "default": null,
           "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}.",
           "x-jinja2-supported": true
-        },
-        "gracePeriod": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "string",
-              "pattern": ".*\\{\\{.*\\}\\}.*",
-              "description": "Jinja2 template (e.g., '{{ variable }}')."
-            },
-            {
-              "type": "string",
-              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
-              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
-            }
-          ],
-          "default": null,
-          "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-          "ge": 0,
-          "title": "Graceperiod",
-          "x-jinja2-supported": true
-        },
-        "cancellation": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CancellationConfig"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Request cancellation testing configuration."
         },
         "sla": {
           "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",
@@ -20842,6 +20980,49 @@
       "additionalProperties": false,
       "description": "N concurrent users sharing a global request rate.\n\nRequires multi-turn conversations. Each user gets a proportional\nshare of the global ``rate``.",
       "properties": {
+        "drainActiveRequests": {
+          "default": false,
+          "description": "At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+          "title": "Drainactiverequests",
+          "type": "boolean"
+        },
+        "gracePeriod": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "default": null,
+          "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+          "ge": 0,
+          "title": "Graceperiod",
+          "x-jinja2-supported": true
+        },
+        "cancellation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CancellationConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Request cancellation testing configuration."
+        },
         "adaptiveScale": {
           "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
           "title": "Adaptivescale",
@@ -21296,43 +21477,6 @@
           "default": null,
           "description": "Ramp prefill_concurrency from lower value. Can be number (seconds) or {duration, strategy}.",
           "x-jinja2-supported": true
-        },
-        "gracePeriod": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "string",
-              "pattern": ".*\\{\\{.*\\}\\}.*",
-              "description": "Jinja2 template (e.g., '{{ variable }}')."
-            },
-            {
-              "type": "string",
-              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
-              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
-            }
-          ],
-          "default": null,
-          "description": "Seconds to wait for in-flight requests after duration expires (must be >= 0). Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-          "ge": 0,
-          "title": "Graceperiod",
-          "x-jinja2-supported": true
-        },
-        "cancellation": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CancellationConfig"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Request cancellation testing configuration."
         },
         "sla": {
           "description": "SLA filters evaluated by adaptive load controllers. Accepts the canonical list form or compact metric/stat/op mapping.",

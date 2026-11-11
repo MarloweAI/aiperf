@@ -113,7 +113,7 @@ def no_wait():
 
 
 @pytest.mark.asyncio
-async def test_lost_replica_is_retried_and_measured_from_the_first_attempt(no_wait):
+async def test_lost_replica_exports_each_attempt_with_its_own_timing(no_wait):
     client, transport = make_client(retry_failed_requests=True, retry_wait_seconds=10.0)
     transport.send_request = AsyncMock(
         side_effect=[
@@ -122,19 +122,24 @@ async def test_lost_replica_is_retried_and_measured_from_the_first_attempt(no_wa
             streamed(300, done=True),
         ]
     )
-    record = await client.send_request(request_info(client))
+    emitted = AsyncMock()
+    record = await client.send_request(request_info(client), attempt_callback=emitted)
     assert record.error is None
-    assert record.start_perf_ns == 100
-    assert [error.type for error in record.retried_errors] == [
+    assert record.start_perf_ns == 300
+    records = [call.args[0] for call in emitted.await_args_list]
+    assert [item.start_perf_ns for item in records] == [100, 200, 300]
+    assert [item.error.type if item.error else None for item in records] == [
         "Service Unavailable",
         "IncompleteStreamError",
+        None,
     ]
+    assert all(not item.retried_errors for item in records)
     assert transport.send_request.await_count == 3
     assert [call.args for call in no_wait.await_args_list] == [(10.0,), (10.0,)]
     sent_ids = {
         call.args[0].x_request_id for call in transport.send_request.await_args_list
     }
-    assert sent_ids == {"sai-00000000-0000-0000-0000-000000000001"}
+    assert len(sent_ids) == 3
 
 
 @pytest.mark.asyncio
@@ -154,7 +159,7 @@ async def test_requests_that_must_not_be_retried(no_wait, options, responses, at
     transport.send_request = AsyncMock(side_effect=responses)
     record = await client.send_request(request_info(client))
     assert transport.send_request.await_count == attempts
-    assert len(record.retried_errors) == attempts - 1
+    assert not record.retried_errors
 
 
 @pytest.mark.asyncio
@@ -201,3 +206,74 @@ async def test_phase_cancellation_during_the_wait_ends_the_request():
     ):
         await client.send_request(request_info(client))
     assert transport.send_request.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cancelled_active_attempt_is_emitted_before_cancellation():
+    client, transport = make_client(retry_failed_requests=True)
+    transport.send_request = AsyncMock(side_effect=asyncio.CancelledError)
+    emitted = AsyncMock()
+    with pytest.raises(asyncio.CancelledError):
+        await client.send_request(request_info(client), attempt_callback=emitted)
+    assert emitted.await_count == 1
+    assert emitted.await_args.args[0].error.code == 499
+
+
+@pytest.mark.asyncio
+async def test_phase_cutoff_prevents_retry_after_failed_attempt(no_wait):
+    client, transport = make_client(retry_failed_requests=True)
+    transport.send_request = AsyncMock(return_value=failed(1, 503, "unavailable"))
+    emitted = AsyncMock()
+    record = await client.send_request(
+        request_info(client), attempt_callback=emitted, retry_allowed=lambda: False
+    )
+    assert record.error.code == 503
+    assert transport.send_request.await_count == emitted.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_preserves_bearer_credentials_and_redacts_each_record(no_wait):
+    client, transport = make_client(retry_failed_requests=True)
+    client.endpoint.get_endpoint_headers.return_value = {
+        "Authorization": "Bearer fixture-secret"
+    }
+    headers: list[str] = []
+
+    async def send(info, **kwargs):
+        headers.append(info.endpoint_headers["Authorization"])
+        return (
+            failed(1, 429, "RateLimit") if len(headers) == 1 else streamed(2, done=True)
+        )
+
+    transport.send_request = AsyncMock(side_effect=send)
+    emitted = AsyncMock()
+    info = request_info(client)
+    await client.send_request(info, attempt_callback=emitted)
+    assert headers == ["Bearer fixture-secret", "Bearer fixture-secret"]
+    assert "fixture-secret" not in info.model_dump_json()
+    assert all(
+        "fixture-secret" not in call.args[0].model_dump_json()
+        for call in emitted.await_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_cancelled_attempt_keeps_partial_transport_record() -> None:
+    """Transport cancellation must preserve the chunks and timing already observed."""
+    client, transport = make_client(retry_failed_requests=True)
+    partial = streamed(10, done=False)
+    partial.cancellation_perf_ns = 50
+    partial.end_perf_ns = 50
+    partial.error = ErrorDetails(
+        type="RequestCancellationError", code=499, message="cancelled"
+    )
+    cancellation = asyncio.CancelledError()
+    cancellation.request_record = partial
+    transport.send_request = AsyncMock(side_effect=cancellation)
+    emitted = AsyncMock()
+    with pytest.raises(asyncio.CancelledError):
+        await client.send_request(request_info(client), attempt_callback=emitted)
+    record = emitted.await_args.args[0]
+    assert record.responses == partial.responses
+    assert record.end_perf_ns == record.cancellation_perf_ns == 50
+    assert record.error.code == 499

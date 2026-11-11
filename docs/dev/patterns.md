@@ -996,3 +996,18 @@ def _queue_fanout_event(self, event_type: str, payload: dict[str, Any]) -> None:
   state, which is more useful for live dashboards.
 - The counter `_fanout_dropped_events` is reported at shutdown so operators can
   tune `AIPERF_OTEL_MAX_BUFFERED_RECORDS` if drops are frequent.
+
+
+## Retry records and completion barriers
+
+Keep scheduling credits separate from measured HTTP attempts. InferenceClient
+calls the worker's attempt callback for every completed or cancelled transport
+invocation. The worker sends each record through `_send_inference_result_message`
+and returns `records_emitted` plus independent HTTP counters in `CreditReturn`.
+The final attempt determines scheduling-credit success and warmup validity.
+
+A records barrier must use `final_records_expected`, including earlier failed
+attempts and rows emitted by cancelled credits. Counting only completed credits
+can finalize exports before retry records arrive. First-token notifications
+release the scheduling credit's prefill slot once; record metrics use each
+attempt's transport timestamps.

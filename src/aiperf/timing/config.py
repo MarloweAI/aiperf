@@ -331,6 +331,11 @@ class CreditPhaseConfig(AIPerfBaseModel):
         "1.0 = Poisson-like (exponential), <1.0 = bursty, >1.0 = smooth/regular. "
         "If None, defaults to 1.0 when using GAMMA arrival pattern.",
     )
+    drain_active_requests: bool = Field(
+        default=False,
+        description="Stop retries at cutoff and drain active HTTP attempts under endpoint deadlines.",
+    )
+
     grace_period_sec: float | None = Field(
         default=None,
         ge=0,
@@ -597,6 +602,7 @@ def _build_warmup_config(
         arrival_smoothness=getattr(phase, "smoothness", None),
         seamless=False,
         grace_period_sec=grace_period,
+        drain_active_requests=phase.drain_active_requests,
         concurrency_ramp_duration_sec=_ramp_duration(phase.concurrency_ramp),
         prefill_concurrency_ramp_duration_sec=_ramp_duration(phase.prefill_ramp),
         request_rate_ramp_duration_sec=_ramp_duration(
@@ -728,6 +734,7 @@ def _build_profiling_config(
         arrival_smoothness=getattr(phase, "smoothness", None),
         seamless=phase.seamless,
         grace_period_sec=phase.grace_period,
+        drain_active_requests=phase.drain_active_requests,
         num_users=getattr(phase, "users", None),
         concurrency_ramp_duration_sec=_ramp_duration(phase.concurrency_ramp),
         prefill_concurrency_ramp_duration_sec=_ramp_duration(phase.prefill_ramp),

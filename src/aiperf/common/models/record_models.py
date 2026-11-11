@@ -36,6 +36,7 @@ from aiperf.common.exceptions import InvalidInferenceResultError
 from aiperf.common.finite import FiniteFloat
 from aiperf.common.models.base_models import AIPerfBaseModel
 from aiperf.common.models.branch_stats import BranchStats
+from aiperf.common.models.credit_models import HttpAttemptSummary
 from aiperf.common.models.dataset_models import Turn
 from aiperf.common.models.error_models import ErrorDetails, ErrorDetailsCount
 from aiperf.common.models.export_models import JsonMetricResult, TelemetryExportData
@@ -181,8 +182,7 @@ class MetricRecordMetadata(AIPerfBaseModel):
     attempt_count: int = Field(
         default=1,
         ge=1,
-        description="Attempts made for this request, including retries. Request start, "
-        "latency and TTFT are measured from the first attempt.",
+        description="HTTP attempts represented by this row. Native attempt records always contain one.",
     )
     conversation_id: str | None = Field(
         default=None,
@@ -462,6 +462,14 @@ class ProfileResults(AIPerfBaseModel):
         default=None,
         description="Metric results computed only from warmup-phase records. "
         "Top-level records remain profiling-only.",
+    )
+    warmup_valid: bool | None = Field(
+        default=None,
+        description="Whether every native warmup scheduling credit finished without a terminal error or cancellation.",
+    )
+    http_attempts: HttpAttemptSummary | None = Field(
+        default=None,
+        description="Independent profiling HTTP counters and phase measurement window.",
     )
     timeslices: list[TimesliceResult] | None = Field(
         default=None,

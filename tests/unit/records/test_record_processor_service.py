@@ -191,10 +191,10 @@ class TestRecordProcessorCreateMetricRecordMetadata:
         assert metadata.worker_id == worker_id
         assert metadata.record_processor_id == "test-processor-id"
 
-    def test_create_metadata_last_response_perf_ns_takes_precedence(
+    def test_create_metadata_terminal_end_perf_ns_takes_precedence(
         self, mock_record_processor, sample_request_record
     ):
-        """Test that last_response_perf_ns takes precedence over end_perf_ns."""
+        """Attempt termination can follow the last streamed token or a timeout."""
         last_response_perf_ns = sample_request_record.start_perf_ns + 150_000
         sample_request_record.end_perf_ns = (
             sample_request_record.start_perf_ns + 200_000
@@ -210,11 +210,10 @@ class TestRecordProcessorCreateMetricRecordMetadata:
             last_response_perf_ns=last_response_perf_ns,
         )
 
-        # Should use last_response_perf_ns (not end_perf_ns)
         expected_end_ns = compute_time_ns(
             sample_request_record.timestamp_ns,
             sample_request_record.start_perf_ns,
-            last_response_perf_ns,
+            sample_request_record.end_perf_ns,
         )
         assert metadata.request_end_ns == expected_end_ns
         assert metadata.worker_id == worker_id

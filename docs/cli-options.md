@@ -376,7 +376,7 @@ Maximum time in seconds to wait for each HTTP request to complete, including con
 
 #### `--retry-failed-requests`
 
-Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`. The conversation waits for its retried turn, and latency and TTFT are measured from the first attempt. For reliability experiments; leave off for performance measurements.
+Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`. The conversation waits for its retried turn. Each HTTP attempt is exported separately with its own latency and TTFT. For reliability experiments; leave off for performance measurements.
 <br/>_Flag (no value required)_
 
 #### `--retry-wait-seconds` `<float>`
@@ -1036,6 +1036,11 @@ Maximum output sequence length cap for top-level (parent) turns. Turns with outp
 #### `--benchmark-duration` `<str>`
 
 Maximum benchmark runtime in seconds. When set, AIPerf stops issuing new requests after this duration, Responses received within `--benchmark-grace-period` after duration ends are included in metrics. Pass a comma-separated list (e.g. `--benchmark-duration 30,60,120`) to sweep over multiple durations; the converter promotes the list to a sweep on phases.profiling.duration before AIPerfConfig validation.
+
+#### `--drain-active-requests`
+
+Stop retries at phase cutoff and let active HTTP attempts finish under their request timeout.
+<br/>_Flag (no value required)_
 
 #### `--benchmark-grace-period` `<float>`
 
@@ -1950,7 +1955,7 @@ Maximum time in seconds to wait for each HTTP request to complete, including con
 
 #### `--retry-failed-requests`
 
-Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`. The conversation waits for its retried turn, and latency and TTFT are measured from the first attempt. For reliability experiments; leave off for performance measurements.
+Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`. The conversation waits for its retried turn. Each HTTP attempt is exported separately with its own latency and TTFT. For reliability experiments; leave off for performance measurements.
 <br/>_Flag (no value required)_
 
 #### `--retry-wait-seconds` `<float>`
@@ -2610,6 +2615,11 @@ Maximum output sequence length cap for top-level (parent) turns. Turns with outp
 #### `--benchmark-duration` `<str>`
 
 Maximum benchmark runtime in seconds. When set, AIPerf stops issuing new requests after this duration, Responses received within `--benchmark-grace-period` after duration ends are included in metrics. Pass a comma-separated list (e.g. `--benchmark-duration 30,60,120`) to sweep over multiple durations; the converter promotes the list to a sweep on phases.profiling.duration before AIPerfConfig validation.
+
+#### `--drain-active-requests`
+
+Stop retries at phase cutoff and let active HTTP attempts finish under their request timeout.
+<br/>_Flag (no value required)_
 
 #### `--benchmark-grace-period` `<float>`
 

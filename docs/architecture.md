@@ -412,3 +412,17 @@ sequenceDiagram
         F->>M: log_metric(live.<name>, delta)
     end
 ```
+
+
+### HTTP attempts and scheduling credits
+
+A scheduling credit can issue several HTTP attempts when retries are enabled.
+Workers publish each attempt through the ordinary record processor and exporter
+pipeline before retrying. Each attempt has its own request ID and timing origin;
+failed attempts remain error records.
+
+Credit returns carry independent HTTP counters and the number of emitted
+records. RecordsManager waits for that emitted-record count, including rows
+from cancelled credits, before finalizing exports. Scheduling completion and
+prefill concurrency still operate once per credit. Opt-in active-request drain
+stops retries at the phase cutoff and waits for active HTTP deadlines.

@@ -199,8 +199,8 @@ class EndpointConfig(BaseConfig):
             default=EndpointDefaults.RETRY_FAILED_REQUESTS,
             description="Retry a request that fails with HTTP 5xx or 429, a connection "
             "error, or a stream that ends before `data: [DONE]`, the way a user retries. "
-            "The conversation waits for its retried turn. Latency and TTFT are measured "
-            "from the first attempt. For reliability experiments; leave off for "
+            "Each HTTP attempt is exported separately with its own latency and TTFT. "
+            "Failed attempts remain errors. For reliability experiments; leave off for "
             "performance measurements.",
         ),
     ]

@@ -131,6 +131,16 @@ class CreditReturn(
     inter_token_latency_ns: float | None = None
     output_sequence_length: int | None = None
     worker_id: str | None = None
+    records_emitted: int | None = None
+    """Number of records sent, independent of scheduling-credit completion."""
+    http_attempts_issued: int = 0
+    """Transport invocations started while holding this credit."""
+    http_attempts_completed: int = 0
+    """Non-cancelled transport invocations finished, including failures."""
+    http_attempts_cancelled: int = 0
+    """Transport invocations interrupted by cancellation."""
+    http_attempts_errors: int = 0
+    """Non-cancelled transport invocations that failed."""
 
 
 class FirstToken(Struct, frozen=True, kw_only=True, tag_field="t", tag="ft"):

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from aiperf.common.models.credit_models import HttpAttemptCounts
+
 if TYPE_CHECKING:
     from aiperf.credit.structs import TurnToSend
     from aiperf.timing.config import CreditPhaseConfig
@@ -36,6 +38,8 @@ class CreditCounter:
         self._completed_sessions: int = 0
         self._cancelled_sessions: int = 0
         self._total_session_turns: int = 0
+        self.http_attempts: HttpAttemptCounts = HttpAttemptCounts()
+        self.records_expected: int = 0
         self._prefills_released: int = 0  # TTFTs received + returns without TTFT
 
         # Final count fields (frozen when phase transitions)

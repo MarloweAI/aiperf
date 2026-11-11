@@ -11,6 +11,40 @@ from aiperf.common.models.base_models import AIPerfBaseModel
 from aiperf.common.types import PhaseKind
 
 
+class HttpAttemptCounts(AIPerfBaseModel):
+    """HTTP invocations counted by workers independently of retained records."""
+
+    issued: int = Field(default=0, ge=0, description="HTTP attempts started.")
+    completed: int = Field(
+        default=0,
+        ge=0,
+        description="Non-cancelled HTTP attempts finished, including errors.",
+    )
+    cancelled: int = Field(
+        default=0, ge=0, description="HTTP attempts cancelled before completion."
+    )
+    errors: int = Field(
+        default=0, ge=0, description="Non-cancelled HTTP attempts that failed."
+    )
+
+
+class HttpAttemptSummary(HttpAttemptCounts):
+    """HTTP counters and the complete native phase window, including drain."""
+
+    start_ns: int | None = Field(
+        default=None, ge=0, description="Profiling phase start in Unix nanoseconds."
+    )
+    end_ns: int | None = Field(
+        default=None,
+        ge=0,
+        description="Profiling phase completion after active attempts drain.",
+    )
+    complete: bool = Field(
+        default=False,
+        description="All issued scheduling credits, HTTP attempts and records reconciled without interruption.",
+    )
+
+
 class BasePhaseStats(AIPerfBaseModel):
     """Base model for phase stats. This is used to track the progress of the credit phases."""
 
@@ -32,6 +66,16 @@ class BasePhaseStats(AIPerfBaseModel):
     )
     phase_kind: PhaseKind | None = Field(
         default=None, description="Phase semantic kind: warmup or profiling."
+    )
+
+    http_attempts: HttpAttemptCounts | None = Field(
+        default=None,
+        description="Independent HTTP counters, separate from scheduling credits.",
+    )
+    final_records_expected: int | None = Field(
+        default=None,
+        ge=0,
+        description="Records emitted by returned credits, including failed retries and cancellations.",
     )
 
     # Timestamp fields

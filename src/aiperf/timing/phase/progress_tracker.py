@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from aiperf.common.aiperf_logger import AIPerfLogger
 from aiperf.common.models import CreditPhaseStats
+from aiperf.credit.messages import CreditReturn
 from aiperf.timing.phase.credit_counter import CreditCounter
 
 if TYPE_CHECKING:
@@ -142,6 +143,19 @@ class PhaseProgressTracker:
             is_final_turn, cancelled, errored=errored, is_child=is_child
         )
 
+    def account_attempts(self, result: CreditReturn) -> None:
+        """Add worker attempt counts before the final credit can release the phase."""
+        counts = self._counter.http_attempts
+        counts.issued += result.http_attempts_issued
+        counts.completed += result.http_attempts_completed
+        counts.cancelled += result.http_attempts_cancelled
+        counts.errors += result.http_attempts_errors
+        self._counter.records_expected += (
+            result.records_emitted
+            if result.records_emitted is not None
+            else int(not result.cancelled)
+        )
+
     def increment_prefill_released(self) -> None:
         """Increment prefill released count.
 
@@ -219,6 +233,10 @@ class PhaseProgressTracker:
             profiling_index=self._config.profiling_index,
             phase_name=self._config.phase_name,
             phase_kind=self._config.phase_kind,
+            http_attempts=self._counter.http_attempts.model_copy(),
+            final_records_expected=(
+                self._counter.records_expected if lifecycle.is_complete else None
+            ),
             # Timestamps from lifecycle
             start_ns=lifecycle.started_at_ns,
             sent_end_ns=lifecycle.sending_complete_at_ns,

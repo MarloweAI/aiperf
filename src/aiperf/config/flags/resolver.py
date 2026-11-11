@@ -414,6 +414,7 @@ _LOADGEN_PHASE_FIELD_MAP: tuple[tuple[str, str], ...] = (
     ("request_count", "requests"),
     ("benchmark_duration", "duration"),
     ("benchmark_grace_period", "grace_period"),
+    ("drain_active_requests", "drain_active_requests"),
     ("concurrency", "concurrency"),
     ("prefill_concurrency", "prefill_concurrency"),
     ("request_rate", "rate"),

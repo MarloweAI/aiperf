@@ -1095,7 +1095,11 @@ class PhaseRunner(TaskManagerMixin):
                 await self._wait_for_accelerated_warmup_handoff()
                 return
 
-            timeout = self._lifecycle.time_left_in_seconds(include_grace_period=True)
+            timeout = (
+                None
+                if self._config.drain_active_requests
+                else self._lifecycle.time_left_in_seconds(include_grace_period=True)
+            )
             timed_out = await self._wait_for_event_with_timeout(
                 name=f"{self._config.phase} phase credits returned",
                 event=self._progress.all_credits_returned_event,

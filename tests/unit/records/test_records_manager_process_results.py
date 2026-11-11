@@ -31,15 +31,18 @@ from aiperf.common.messages import (
     ProcessServerMetricsResultMessage,
 )
 from aiperf.common.models import (
+    CreditPhaseStats,
     MetricResult,
     PhaseRecordsStats,
     ProcessRecordsResult,
     ProfileMetricDurationCoverage,
     TimesliceResult,
 )
+from aiperf.common.models.credit_models import HttpAttemptCounts
 from aiperf.metrics.accumulator_models import AccumulatorMetricsSummary
 from aiperf.plugin.enums import AccumulatorType, StreamExporterType
 from aiperf.records.records_manager import RecordsManager
+from aiperf.records.records_tracker import CreditPhaseRecordsTracker
 
 # ---------------------------------------------------------------------------
 # Stub fixtures
@@ -574,3 +577,79 @@ class TestProcessResultsServerMetricsFailure:
             "Failed to process server metrics results" in str(call.args[0])
             for call in mgr.exception.call_args_list
         )
+
+
+@pytest.mark.parametrize("cancelled_credit", [False, True])
+def test_record_barrier_waits_for_every_attempt(cancelled_credit: bool) -> None:
+    """Extra retry rows must arrive even when their scheduling credit cancels."""
+    tracker = CreditPhaseRecordsTracker(CreditPhase.PROFILING)
+    tracker.update_from_credit_phase_stats(
+        CreditPhaseStats(
+            phase=CreditPhase.PROFILING,
+            final_requests_completed=int(not cancelled_credit),
+            final_requests_cancelled=int(cancelled_credit),
+            final_records_expected=3,
+        )
+    )
+    tracker.increment_error_records()
+    assert not tracker.check_and_set_all_records_received()
+    tracker.increment_error_records()
+    assert not tracker.check_and_set_all_records_received()
+    tracker.increment_success_records()
+    assert tracker.check_and_set_all_records_received()
+
+
+@pytest.mark.parametrize(
+    "terminal_errors,cancelled,expected",
+    [
+        pytest.param(0, 0, True, id="recovered-retry"),
+        pytest.param(1, 0, False, id="terminal-error"),
+        pytest.param(0, 1, False, id="cancelled-warmup"),
+    ],
+)
+def test_warmup_validity_uses_terminal_credit_outcome(
+    terminal_errors: int, cancelled: int, expected: bool
+) -> None:
+    """Intermediate error rows do not invalidate a recovered warmup credit."""
+    stats = PhaseRecordsStats(
+        phase=CreditPhase.WARMUP,
+        start_ns=1,
+        requests_end_ns=2,
+        final_requests_sent=1,
+        final_requests_completed=1 - cancelled,
+        final_requests_cancelled=cancelled,
+        final_request_errors=terminal_errors,
+        success_records=1,
+        error_records=1,
+    )
+    assert RecordsManager._warmup_validity(stats) is expected
+
+
+@pytest.mark.parametrize(
+    "interrupted,retained,expected",
+    [
+        pytest.param(False, 2, True, id="complete"),
+        pytest.param(True, 2, False, id="interrupted"),
+        pytest.param(False, 1, False, id="missing-record"),
+    ],
+)
+def test_http_attempt_summary_reconciles_independent_counts(
+    interrupted: bool, retained: int, expected: bool
+) -> None:
+    """A partial export cannot claim a complete HTTP request population."""
+    stats = PhaseRecordsStats(
+        phase=CreditPhase.PROFILING,
+        start_ns=1,
+        requests_end_ns=100,
+        final_requests_sent=1,
+        final_requests_completed=1,
+        final_requests_cancelled=0,
+        final_records_expected=2,
+        http_attempts=HttpAttemptCounts(issued=2, completed=1, cancelled=1, errors=1),
+        error_records=retained,
+    )
+    proof = RecordsManager._http_attempt_summary(stats, interrupted)
+    assert proof is not None
+    assert proof.complete is expected
+    assert proof.issued == 2 and proof.cancelled == 1
+    assert proof.start_ns == 1 and proof.end_ns == 100

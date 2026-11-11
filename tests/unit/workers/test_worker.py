@@ -964,7 +964,13 @@ class TestPayloadBytesFastPath:
             end_perf_ns=2,
             error=ErrorDetails(message="boom", type="TestError"),
         )
-        mock_worker.inference_client.send_request = AsyncMock(return_value=error_record)
+
+        async def send_attempt(info, **kwargs):
+            kwargs["attempt_started"]()
+            await kwargs["attempt_callback"](error_record)
+            return error_record
+
+        mock_worker.inference_client.send_request = AsyncMock(side_effect=send_attempt)
         mock_worker._send_inference_result_message = AsyncMock()
         mock_worker._process_credit_with_session = AsyncMock()
 
@@ -998,9 +1004,13 @@ class TestPayloadBytesFastPath:
             start_perf_ns=1,
             end_perf_ns=2,
         )
-        mock_worker.inference_client.send_request = AsyncMock(
-            return_value=success_record
-        )
+
+        async def send_attempt(info, **kwargs):
+            kwargs["attempt_started"]()
+            await kwargs["attempt_callback"](success_record)
+            return success_record
+
+        mock_worker.inference_client.send_request = AsyncMock(side_effect=send_attempt)
         mock_worker._send_inference_result_message = AsyncMock()
 
         assert sample_credit_context.record_emitted is False
@@ -1124,3 +1134,29 @@ class TestMakeFirstTokenCallback:
         assert sent.credit_id == sample_credit_context.credit.id
         assert sent.phase_index == sample_credit_context.credit.phase_index
         assert sent.ttft_ns == 50_000_000
+
+
+@pytest.mark.asyncio
+async def test_credit_before_phase_start_shares_retry_stop_event(
+    mock_worker, sample_credit_context
+) -> None:
+    """Credits and phase notifications arrive over independent channels."""
+    captured = []
+
+    async def send(info, **kwargs):
+        captured.append(kwargs["retry_stop_event"])
+        stats = SimpleNamespace(
+            phase=sample_credit_context.credit.phase,
+            phase_index=sample_credit_context.credit.phase_index,
+            start_ns=1,
+        )
+        config = SimpleNamespace(drain_active_requests=True, expected_duration_sec=None)
+        await mock_worker._on_attempt_phase_start(
+            SimpleNamespace(stats=stats, config=config)
+        )
+        key = (stats.phase, stats.phase_index)
+        assert captured[0] is mock_worker._retry_stops[key]
+        return RequestRecord(start_perf_ns=1, end_perf_ns=2)
+
+    mock_worker.inference_client.send_request = AsyncMock(side_effect=send)
+    await mock_worker._send_credit_request(sample_credit_context, MagicMock(), None)

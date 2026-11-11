@@ -364,6 +364,7 @@ class CreditCallbackHandler:
         # ``BranchOrchestrator``. Their returns are signalled via the
         # ``on_child_*`` hooks below; passing ``is_child=True`` keeps
         # ``requests_completed`` / ``requests_cancelled`` root-only.
+        handler.progress.account_attempts(credit_return)
         is_final_returned = handler.progress.increment_returned(
             credit.is_final_turn,
             credit_return.cancelled,

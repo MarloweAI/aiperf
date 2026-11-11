@@ -43,6 +43,16 @@ class MetricsJsonExporter(MetricsBaseExporter):
             file_path=self._file_path,
         )
 
+    def _request_population_metadata(self) -> dict[str, object]:
+        """Declare native HTTP evidence and terminal warmup preparation validity."""
+        metadata: dict[str, object] = {}
+        if getattr(self._results, "http_attempts", None) is not None:
+            metadata["request_population"] = "http_attempts"
+            metadata["http_attempts"] = self._results.http_attempts.model_dump()
+        if getattr(self._results, "warmup_valid", None) is not None:
+            metadata["warmup_valid"] = self._results.warmup_valid
+        return metadata
+
     def _generate_content(self) -> str:
         """Generate JSON content string from inference and telemetry data.
 
@@ -87,7 +97,7 @@ class MetricsJsonExporter(MetricsBaseExporter):
 
         from aiperf.dataset.provenance import public_dataset_provenance
 
-        run_metadata: dict[str, object] = {}
+        run_metadata = self._request_population_metadata()
         dataset = public_dataset_provenance(self._cfg)
         if dataset is not None:
             run_metadata["dataset"] = dataset

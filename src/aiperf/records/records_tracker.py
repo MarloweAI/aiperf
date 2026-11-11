@@ -13,6 +13,7 @@ from aiperf.common.models import (
     PhaseRecordsStats,
     WorkerProcessingStats,
 )
+from aiperf.common.models.credit_models import HttpAttemptCounts
 
 
 class CreditPhaseRecordsTracker(AIPerfLoggerMixin):
@@ -58,9 +59,12 @@ class CreditPhaseRecordsTracker(AIPerfLoggerMixin):
         self._error_records: int = 0
 
         # Final count fields
+        self._final_requests_sent: int | None = None
         self._final_requests_completed: int | None = None
         self._final_requests_cancelled: int | None = None
         self._final_request_errors: int | None = None
+        self._final_records_expected: int | None = None
+        self._http_attempts: HttpAttemptCounts | None = None
 
         # Timeout/cancel fields
         self._timeout_triggered: bool = False
@@ -107,7 +111,10 @@ class CreditPhaseRecordsTracker(AIPerfLoggerMixin):
             total_expected_requests=self._total_expected_requests,
             success_records=self._success_records,
             error_records=self._error_records,
+            final_requests_sent=self._final_requests_sent,
             final_requests_completed=self._final_requests_completed,
+            final_records_expected=self._final_records_expected,
+            http_attempts=self._http_attempts,
             final_requests_cancelled=self._final_requests_cancelled,
             final_request_errors=self._final_request_errors,
             timeout_triggered=self._timeout_triggered,
@@ -127,7 +134,10 @@ class CreditPhaseRecordsTracker(AIPerfLoggerMixin):
         self._baseline_start_ns = credit_stats.baseline_start_ns
         self._baseline_end_ns = credit_stats.baseline_end_ns
         self._total_expected_requests = credit_stats.total_expected_requests
+        self._final_requests_sent = credit_stats.final_requests_sent
         self._final_requests_completed = credit_stats.final_requests_completed
+        self._final_records_expected = credit_stats.final_records_expected
+        self._http_attempts = credit_stats.http_attempts
         self._final_requests_cancelled = credit_stats.final_requests_cancelled
         self._final_request_errors = credit_stats.final_request_errors
         self._timeout_triggered = credit_stats.timeout_triggered
@@ -167,9 +177,13 @@ class CreditPhaseRecordsTracker(AIPerfLoggerMixin):
         if self._sent_all_records_received:
             return False
 
-        all_records_received = self._final_requests_completed is not None and (
-            self._success_records + self._error_records
-            >= self._final_requests_completed
+        expected = (
+            self._final_records_expected
+            if self._final_records_expected is not None
+            else self._final_requests_completed
+        )
+        all_records_received = expected is not None and (
+            self._success_records + self._error_records >= expected
         )
         if all_records_received:
             self._mark_all_records_received()
@@ -291,8 +305,20 @@ class RecordsTracker:
             total_expected_requests=optional_sum(
                 [s.total_expected_requests for s in stats]
             ),
+            http_attempts=HttpAttemptCounts(
+                **{
+                    name: sum(getattr(s.http_attempts, name, 0) for s in stats)
+                    for name in HttpAttemptCounts.model_fields
+                }
+            )
+            if any(s.http_attempts is not None for s in stats)
+            else None,
+            final_records_expected=optional_sum(
+                [s.final_records_expected for s in stats]
+            ),
             success_records=sum(s.success_records for s in stats),
             error_records=sum(s.error_records for s in stats),
+            final_requests_sent=optional_sum([s.final_requests_sent for s in stats]),
             final_requests_completed=optional_sum(
                 [s.final_requests_completed for s in stats]
             ),

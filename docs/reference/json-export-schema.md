@@ -72,6 +72,45 @@ In addition to the per-metric stats blocks, `profile_export_aiperf.json` include
 | `telemetry_data` | object | GPU telemetry summaries when telemetry collection was active. |
 | `error_summary` | array | Per-error counts collected during the run. |
 
+### HTTP attempt population
+
+Native request rows in `profile_export.jsonl` represent individual HTTP attempts.
+Each attempt has its own `metadata.x_request_id`, start/end timestamps and
+successful-response metrics. A retry uses a fresh request ID and timing origin.
+Failed attempts, including HTTP 429 and incomplete streams, retain their ordinary
+`error` field. Error rows can omit success-only latency and token metrics; their
+start/end timestamps still describe the attempt. Correlation and conversation
+fields connect attempts for debugging. `metadata.attempt_count` is always 1.
+
+The summary declares `metadata.request_population: "http_attempts"` and includes
+`metadata.http_attempts` with independently collected worker counters:
+
+| Field | Meaning |
+|---|---|
+| `issued` | HTTP transport invocations started. |
+| `completed` | Attempts finished without cancellation, including errors. |
+| `cancelled` | Attempts interrupted by cancellation. |
+| `errors` | Non-cancelled attempts that failed. |
+| `start_ns`, `end_ns` | Native profiling phase boundaries in Unix nanoseconds, including drain time. |
+| `complete` | Every issued credit returned and HTTP counts and retained records reconciled without interruption. |
+
+A complete population satisfies `issued == completed + cancelled`.
+Cancellations have a separate outcome bucket and can still carry an ordinary
+499 error row. Missing proof or `complete: false` means the population is incomplete.
+AIPerf retains the summary when every attempt fails and exits with an error.
+
+When warmup ran, `metadata.warmup_valid` reports whether every warmup scheduling
+credit completed without a terminal error or cancellation. A recovered retry
+can leave failed warmup attempt rows while `warmup_valid` is true. Missing
+warmup completion leaves this field unknown or omitted.
+
+`--drain-active-requests` (phase `drain_active_requests: true` in YAML) stops
+retries at the phase deadline and lets active HTTP attempts finish under their
+finite positive endpoint timeout. For a duration-bound phase, a request-count
+limit can stop new credit issuance earlier; retries still stop at the duration
+deadline. Without a duration, completion of credit issuance stops retries.
+The default grace-period behavior remains unchanged.
+
 ### `telemetry_data`
 
 Schema 1.4 adds a `platform` field to each GPU summary and vendor-scopes GPU

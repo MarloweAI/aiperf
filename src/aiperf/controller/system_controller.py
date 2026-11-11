@@ -1210,8 +1210,6 @@ class SystemController(SignalHandlerMixin, BaseService):
                     service_id=self.id,
                 )
             )
-            self._print_exit_errors_and_log_file()
-            return
 
         console = Console()
         if console.width < 100:

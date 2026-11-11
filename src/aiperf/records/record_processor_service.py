@@ -235,7 +235,7 @@ class RecordProcessor(PullClientMixin, BaseComponentService):
         start_perf_ns = record.start_perf_ns
 
         end_perf_ns = (
-            last_response_perf_ns or record.end_perf_ns or record.start_perf_ns
+            record.end_perf_ns or last_response_perf_ns or record.start_perf_ns
         )
 
         # Convert all timestamps from perf_ns to time_ns for the user
@@ -270,7 +270,7 @@ class RecordProcessor(PullClientMixin, BaseComponentService):
             phase_kind=record.request_info.phase_kind,
             x_request_id=record.request_info.x_request_id,
             x_correlation_id=record.request_info.x_correlation_id,
-            attempt_count=len(record.retried_errors) + 1,
+            attempt_count=1,
             session_num=record.request_info.credit_num,
             worker_id=worker_id,
             was_cancelled=cancellation_time_ns is not None,

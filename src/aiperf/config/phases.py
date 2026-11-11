@@ -65,7 +65,34 @@ __all__ = [
 # =============================================================================
 
 
-class BasePhaseConfig(AdaptiveScalePhaseMixin, BaseConfig):
+class PhaseTransitionConfig(BaseConfig):
+    """Phase boundaries and cancellation policy shared by every traffic strategy."""
+
+    drain_active_requests: bool = Field(
+        default=False,
+        description="At phase cutoff stop retries and let active HTTP attempts finish under their endpoint timeout, ignoring the phase grace period.",
+    )
+
+    grace_period: Annotated[
+        DurationSpec,
+        Field(
+            ge=0,
+            default=None,
+            description="Seconds to wait for in-flight requests after duration expires (must be >= 0). "
+            "Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
+        ),
+    ]
+
+    cancellation: Annotated[
+        CancellationConfig | None,
+        Field(
+            default=None,
+            description="Request cancellation testing configuration.",
+        ),
+    ]
+
+
+class BasePhaseConfig(AdaptiveScalePhaseMixin, PhaseTransitionConfig):
     """Base configuration shared by all phase types.
 
     Not instantiated directly -- use a concrete type via the
@@ -207,24 +234,6 @@ class BasePhaseConfig(AdaptiveScalePhaseMixin, BaseConfig):
     # -------------------------------------------------------------------------
     # Transition Settings
     # -------------------------------------------------------------------------
-
-    grace_period: Annotated[
-        DurationSpec,
-        Field(
-            ge=0,
-            default=None,
-            description="Seconds to wait for in-flight requests after duration expires (must be >= 0). "
-            "Requires 'duration' to be set. Supports: 30, '30s', '2m'.",
-        ),
-    ]
-
-    cancellation: Annotated[
-        CancellationConfig | None,
-        Field(
-            default=None,
-            description="Request cancellation testing configuration.",
-        ),
-    ]
 
     sla: Annotated[
         list[SLAFilter],

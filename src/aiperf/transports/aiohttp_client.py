@@ -164,6 +164,7 @@ class AioHttpClient(AIPerfLoggerMixin):
                     # return accepted/created responses without being rejected.
                     if response.status < 200 or response.status >= 300:
                         error_text = await response.text()
+                        record.end_perf_ns = time.perf_counter_ns()
                         record.error = ErrorDetails(
                             code=response.status,
                             type=response.reason,
@@ -283,7 +284,7 @@ class AioHttpClient(AIPerfLoggerMixin):
             record.end_perf_ns = time.perf_counter_ns()
             self.error(f"Error in SSE response: {e!r}")
             record.error = ErrorDetails.from_exception(e)
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as error:
             # Task was cancelled externally (e.g., credit cancellation from router)
             # Record the cancellation and re-raise to allow proper cleanup
             record.end_perf_ns = time.perf_counter_ns()
@@ -294,6 +295,7 @@ class AioHttpClient(AIPerfLoggerMixin):
                 code=499,  # Client Closed Request
             )
             self.debug("Request cancelled by external signal")
+            error.request_record = record
             raise
         except Exception as e:
             record.end_perf_ns = time.perf_counter_ns()
