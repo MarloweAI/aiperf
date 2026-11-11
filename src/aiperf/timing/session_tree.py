@@ -61,6 +61,8 @@ class _TreeState:
     lane (no root credit will ever run -- it drains on descendants alone)."""
     outstanding: int = 0
     """Descendants currently live or registered-pending (any depth)."""
+    retiring: bool = False
+    """Stop at the next HTTP return instead of finishing the remaining trace."""
     released: bool = False
     """Set once the slot has been released; guards against double release."""
 
@@ -93,6 +95,8 @@ class SessionTreeRegistry:
         # subagents -- otherwise it would open at outstanding=0 and drain on the
         # FIRST child completion while siblings still run (premature drain).
         self._pending_descendants: dict[str, int] = {}
+        self._requests: dict[str, int] = {}
+        self._retired_roots: set[str] = set()
         # Peak simultaneously-open trees == peak session-slot occupancy. The
         # whole point of per-tree accounting is that this never exceeds the
         # configured concurrency; logged at teardown so any overshoot is visible.
@@ -160,6 +164,30 @@ class SessionTreeRegistry:
         """True when this registry is tracking ``root_corr`` (engagement gate)."""
         return root_corr in self._trees
 
+    def on_request_issued(self, root_corr: str) -> None:
+        """Count dispatched HTTP work, including children issued before tree open."""
+        self._requests[root_corr] = self._requests.get(root_corr, 0) + 1
+
+    def on_request_returned(self, root_corr: str) -> None:
+        """Release a retiring tree after its final already-dispatched request."""
+        count = self._requests.get(root_corr, 0)
+        if count > 1:
+            self._requests[root_corr] = count - 1
+        else:
+            self._requests.pop(root_corr, None)
+        state = self._trees.get(root_corr)
+        if state is not None and state.retiring:
+            self._maybe_release(root_corr, state)
+
+    def retire_tree(self, root_corr: str) -> None:
+        """Hold the session slot for HTTP drain while discarding future trace work."""
+        self._retired_roots.add(root_corr)
+        state = self._trees.get(root_corr)
+        if state is None:
+            return
+        state.retiring = True
+        self._maybe_release(root_corr, state)
+
     def register_descendants(self, root_corr: str, n: int = 1) -> None:
         """Add ``n`` descendants (spawned or snapshot-seeded) to a tree.
 
@@ -169,7 +197,7 @@ class SessionTreeRegistry:
         Tolerant of unknown trees (e.g. dag_jsonl pre-session spawns whose tree
         is not yet open): a logged no-op.
         """
-        if n <= 0:
+        if n <= 0 or root_corr in self._retired_roots:
             return
         state = self._trees.get(root_corr)
         if state is None:
@@ -189,6 +217,8 @@ class SessionTreeRegistry:
 
         Returns True if the slot was released by this call.
         """
+        if root_corr in self._retired_roots:
+            return False
         state = self._trees.get(root_corr)
         if state is None:
             # Tree not open yet: the descendant was buffered by
@@ -233,10 +263,14 @@ class SessionTreeRegistry:
         return self._maybe_release(root_corr, state)
 
     def _maybe_release(self, root_corr: str, state: _TreeState) -> bool:
-        if state.released or not state.drained:
+        drained = (
+            not self._requests.get(root_corr, 0) if state.retiring else state.drained
+        )
+        if state.released or not drained:
             return False
         state.released = True
         self._trees.pop(root_corr, None)
+        self._requests.pop(root_corr, None)
         self._concurrency_manager.release_session_slot(state.phase)
         if self._on_drain is not None:
             self._on_drain(root_corr, state.phase)
@@ -259,6 +293,7 @@ class SessionTreeRegistry:
             if state is None or state.released:
                 continue
             state.released = True
+            self._requests.pop(root_corr, None)
             self._concurrency_manager.release_session_slot(phase)
         return len(to_release)
 

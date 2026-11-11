@@ -486,6 +486,10 @@ class CreditIssuer:
             max_tokens_override=turn.max_tokens_override,
         )
 
+        if self._session_tree_registry is not None:
+            self._session_tree_registry.on_request_issued(
+                credit.effective_root_correlation_id
+            )
         await self._credit_router.send_credit(credit=credit)
         replay_gate = getattr(self, "replay_gate", None)
         if replay_gate is not None:

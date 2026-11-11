@@ -243,6 +243,7 @@ class TrajectorySource(ConversationSource):
         total_expected_requests: int | None = None,
         expected_duration_sec: float | None = None,
         cache_bust_enabled: bool = False,
+        max_concurrency: int | None = None,
     ) -> None:
         super().__init__(
             dataset_metadata=dataset_metadata, dataset_sampler=dataset_sampler
@@ -269,7 +270,7 @@ class TrajectorySource(ConversationSource):
         )
         validate_dataset_wrap_policy(
             distinct=pool_size,
-            concurrency=concurrency,
+            concurrency=max(concurrency, max_concurrency or concurrency),
             allow_dataset_wrap=allow_dataset_wrap,
             expected_num_sessions=expected_num_sessions,
             total_expected_requests=total_expected_requests,

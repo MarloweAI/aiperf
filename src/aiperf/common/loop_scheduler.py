@@ -296,6 +296,12 @@ class LoopScheduler:
         coro.close()
         return True
 
+    def cancel_pending_group(self, group_id: str) -> None:
+        """Cancel future trace dispatch for one root without touching other trees."""
+        for handle_id, group in list(self._handle_groups.items()):
+            if group == group_id:
+                self.cancel_handle_id(handle_id)
+
     def cancel_all_pending(self) -> None:
         """
         Cancel all pending timers and close their coroutines.

@@ -361,6 +361,27 @@ class BranchOrchestrator:
             if item[0] != root_correlation_id
         }
 
+    async def retire_replay_root(self, root_correlation_id: str) -> None:
+        """Discard a retired tree's future branches while its HTTP requests drain.
+
+        Final admission must already reject this root before join cleanup runs,
+        because completing a child can otherwise dispatch its parent's join.
+        """
+        children = [
+            child
+            for child, root in self._child_root.items()
+            if root == root_correlation_id
+        ]
+        parents = {root_correlation_id, *children}
+        for child in children:
+            await self.on_child_stopped(child)
+        for parent in parents:
+            self._active_joins.pop(parent, None)
+            self._future_joins.pop(parent, None)
+            self._release_parent_slot_if_drained(parent)
+        self.close_replay_root(root_correlation_id)
+        self._notify_drain()
+
     def snapshot_annotations(
         self,
     ) -> tuple[dict[str, int], dict[str, list[tuple[str | None, int | None]]]]:

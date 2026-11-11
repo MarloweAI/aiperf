@@ -2358,6 +2358,17 @@ class CLIConfig(BaseConfig):
         ),
     ] = None
 
+    agentic_concurrency_schedule: Annotated[
+        str | None,
+        Field(
+            description="AgentX profiling session targets as seconds:concurrency pairs, "
+            "for example 900:96,1200:24. Preserves initial lanes and drains removed lanes' HTTP requests."
+        ),
+        CLIParameter(
+            name=("--agentic-concurrency-schedule",), group=Groups.LOAD_GENERATOR
+        ),
+    ] = None
+
     warmup_requests_per_lane: Annotated[
         int | None,
         Field(

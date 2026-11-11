@@ -48,6 +48,7 @@ _RAMP_FIELDS: tuple[tuple[str, str], ...] = (
 # AGENTIC_REPLAY phase fields that pass through verbatim onto BasePhaseConfig.
 # (output_key == attr_name on CLIConfig.)
 _AGENTIC_REPLAY_ROUTES: tuple[str, ...] = (
+    "agentic_concurrency_schedule",
     "failed_request_threshold",
     "trajectory_start_min_ratio",
     "trajectory_start_max_ratio",
@@ -67,6 +68,11 @@ def _apply_agentic_replay_fields(phase: dict[str, Any], cli: CLIConfig) -> None:
     """
     fields_set = cli.model_fields_set
     for attr in _AGENTIC_REPLAY_ROUTES:
+        if (
+            attr == "agentic_concurrency_schedule"
+            and phase.get("exclude_from_results") is True
+        ):
+            continue
         if attr in fields_set:
             phase[attr] = getattr(cli, attr)
     # v1 parity: under a --scenario, --warmup-grace-period fed the agentic
