@@ -1070,6 +1070,8 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         persisted for profiling, so marking the child stopped here would
         release the parent prematurely.
         """
+        if self.branch_orchestrator is not None:
+            self.branch_orchestrator.child_timer_fired(turn.x_correlation_id)
         result = ChildDispatchResult.normalize(
             await self.credit_issuer.dispatch_child_turn(turn)
         )
@@ -1691,6 +1693,8 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             else self.credit_issuer.issue_credit(turn)
         )
         if next_meta.delay_ms is not None and next_meta.delay_ms > 0:
+            if turn.agent_depth > 0 and self.branch_orchestrator is not None:
+                self.branch_orchestrator.child_awaits_timer(turn.x_correlation_id)
             self.scheduler.schedule_later(
                 next_meta.delay_ms / MILLIS_PER_SECOND,
                 coro,
