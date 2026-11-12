@@ -379,6 +379,11 @@ Maximum time in seconds to wait for each HTTP request to complete, including con
 Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`. The conversation waits for its retried turn, and latency and TTFT are measured from the first attempt. For reliability experiments; leave off for performance measurements.
 <br/>_Flag (no value required)_
 
+#### `--retry-failed-warmup-requests`
+
+Retry only warmup requests, with the same rules, wait and attempt cap as --retry-failed-requests. A router that refuses the warmup burst (429 or 503) then delays the warmup instead of failing it, while profiling requests stay first attempts. Has no effect when --retry-failed-requests is set.
+<br/>_Flag (no value required)_
+
 #### `--retry-wait-seconds` `<float>`
 
 Seconds to wait before each retry when --retry-failed-requests is set.
@@ -1955,6 +1960,11 @@ Maximum time in seconds to wait for each HTTP request to complete, including con
 #### `--retry-failed-requests`
 
 Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`. The conversation waits for its retried turn, and latency and TTFT are measured from the first attempt. For reliability experiments; leave off for performance measurements.
+<br/>_Flag (no value required)_
+
+#### `--retry-failed-warmup-requests`
+
+Retry only warmup requests, with the same rules, wait and attempt cap as --retry-failed-requests. A router that refuses the warmup burst (429 or 503) then delays the warmup instead of failing it, while profiling requests stay first attempts. Has no effect when --retry-failed-requests is set.
 <br/>_Flag (no value required)_
 
 #### `--retry-wait-seconds` `<float>`

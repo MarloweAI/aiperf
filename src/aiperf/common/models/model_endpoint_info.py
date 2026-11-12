@@ -113,6 +113,10 @@ class EndpointInfo(AIPerfBaseModel):
         description="Retry requests that fail with 5xx, 429, a connection error or an "
         "incomplete stream.",
     )
+    retry_failed_warmup_requests: bool = Field(
+        default=EndpointDefaults.RETRY_FAILED_WARMUP_REQUESTS,
+        description="Retry only warmup requests, under the same rules.",
+    )
     retry_wait_seconds: float = Field(
         default=EndpointDefaults.RETRY_WAIT_SECONDS,
         gt=0,
@@ -225,6 +229,7 @@ class ModelEndpointInfo(AIPerfBaseModel):
                 extra=list((getattr(ep, "extra", {}) or {}).items()),
                 timeout=ep.timeout,
                 retry_failed_requests=ep.retry_failed_requests,
+                retry_failed_warmup_requests=ep.retry_failed_warmup_requests,
                 retry_wait_seconds=ep.retry_wait_seconds,
                 retry_max_attempts=ep.retry_max_attempts,
                 api_key=ep.api_key,
