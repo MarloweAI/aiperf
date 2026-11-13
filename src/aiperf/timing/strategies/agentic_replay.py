@@ -314,8 +314,11 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
 
     @property
     def allows_pending_branch_handoff_after_sending_complete(self) -> bool:
-        """Pressure warmup preserves paused DAG branches for profiling handoff."""
-        return self.wants_returns_after_sending_complete
+        """Pending DAG work cannot hold a duration-ended phase after wire drain."""
+        return self.wants_returns_after_sending_complete or (
+            self.config.phase == CreditPhase.PROFILING
+            and self.lifecycle.timeout_triggered
+        )
 
     def _lane_root_corr(self, snapshot: TrajectorySnapshot) -> str | None:
         """Tree-root id shared by every stream of a snapshot lane.
@@ -1070,6 +1073,8 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         persisted for profiling, so marking the child stopped here would
         release the parent prematurely.
         """
+        if self.branch_orchestrator is not None:
+            self.branch_orchestrator.child_timer_fired(turn.x_correlation_id)
         result = ChildDispatchResult.normalize(
             await self.credit_issuer.dispatch_child_turn(turn)
         )
@@ -1691,6 +1696,8 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             else self.credit_issuer.issue_credit(turn)
         )
         if next_meta.delay_ms is not None and next_meta.delay_ms > 0:
+            if turn.agent_depth > 0 and self.branch_orchestrator is not None:
+                self.branch_orchestrator.child_awaits_timer(turn.x_correlation_id)
             self.scheduler.schedule_later(
                 next_meta.delay_ms / MILLIS_PER_SECOND,
                 coro,

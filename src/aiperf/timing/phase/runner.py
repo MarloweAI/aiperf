@@ -1068,10 +1068,10 @@ class PhaseRunner(TaskManagerMixin):
         3. Wait for cancelled credits to drain (CANCEL_DRAIN_TIMEOUT)
         4. If drain times out: release stuck concurrency slots and force completion
 
-        Accelerated cache-pressure warmup hands its paused DAG branches off to
-        profiling, so once issuance stops it completes on ``in_flight == 0``
-        alone -- it must NOT wait for the orchestrator's pending branch work to
-        drain (that paused work IS the handoff payload).
+        Accelerated cache-pressure warmup hands paused DAG branches to profiling.
+        A duration-ended AgentX profile has stopped admitting branch work. In
+        either case, once issuance stops, wire drain completes the phase even
+        if the orchestrator retains pending branch state.
         """
         timed_out = False
         try:

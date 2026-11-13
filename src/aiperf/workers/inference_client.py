@@ -302,7 +302,11 @@ class InferenceClient(AIPerfLifecycleMixin):
         if self.is_trace_enabled and request_info.turns:
             self.trace(f"Calling inference API for turn: {request_info.turns[-1]}")
         record = await self._send_request_internal(request_info, first_token_callback)
-        if self.model_endpoint.endpoint.retry_failed_requests:
+        endpoint = self.model_endpoint.endpoint
+        if endpoint.retry_failed_requests or (
+            endpoint.retry_failed_warmup_requests
+            and request_info.credit_phase == CreditPhase.WARMUP
+        ):
             record = await self._retry_until_final(
                 record, request_info, first_token_callback
             )
