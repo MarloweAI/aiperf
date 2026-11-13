@@ -180,3 +180,58 @@ async def test_subagent_timer_cancelled_at_cutoff_does_not_wait_out_grace(
         max(DURATION_SEC, last_return), abs=0.01
     ), "the reported end is the cutoff or the last return, never the grace end"
     assert not any("leaked state" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize(
+    ("duration_sec", "in_flight_at_cutoff"),
+    [(0.1, True), (2.0, False)],
+)
+async def test_duration_cutoff_finishes_after_wire_returns_despite_pending_branches(
+    duration_sec: float,
+    in_flight_at_cutoff: bool,
+    time_traveler_no_patch_sleep,
+) -> None:
+    source = TrajectorySource(
+        dataset_metadata=_dataset("first"),
+        dataset_sampler=SequentialSampler(["root"]),
+        concurrency=1,
+        random_seed=42,
+        start_min_ratio=0.0,
+        start_max_ratio=0.0,
+        allow_dataset_wrap=False,
+    )
+    config = CreditPhaseConfig(
+        phase=CreditPhase.PROFILING,
+        timing_mode=TimingMode.AGENTIC_REPLAY,
+        concurrency=1,
+        expected_duration_sec=duration_sec,
+        grace_period_sec=10.0,
+    )
+    manager = ConcurrencyManager()
+    registry = SessionTreeRegistry(manager)
+    worker = _Worker()
+    callback = CreditCallbackHandler(manager, session_tree_registry=registry)
+    worker.callback = callback
+    cancel_policy = MagicMock()
+    cancel_policy.next_cancellation_delay_ns.return_value = None
+    publisher = _publisher()
+    runner = PhaseRunner(
+        config=config,
+        conversation_source=source,
+        phase_publisher=publisher,
+        credit_router=worker,
+        concurrency_manager=manager,
+        cancellation_policy=cancel_policy,
+        callback_handler=callback,
+        session_tree_registry=registry,
+    )
+    assert runner._branch_orchestrator is not None
+    runner._branch_orchestrator.has_pending_branch_work = MagicMock(return_value=True)
+    stats = await runner.run(is_final_phase=True)
+
+    sending_stats = publisher.publish_phase_sending_complete.call_args.args[0]
+    assert stats.timeout_triggered
+    assert (sending_stats.in_flight_requests > 0) is in_flight_at_cutoff
+    assert stats.in_flight_requests == 0
+    assert not stats.grace_period_timeout_triggered
+    assert (stats.requests_end_ns - stats.start_ns) / 1e9 < duration_sec + 1.0

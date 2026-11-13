@@ -314,8 +314,11 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
 
     @property
     def allows_pending_branch_handoff_after_sending_complete(self) -> bool:
-        """Pressure warmup preserves paused DAG branches for profiling handoff."""
-        return self.wants_returns_after_sending_complete
+        """Pending DAG work cannot hold a duration-ended phase after wire drain."""
+        return self.wants_returns_after_sending_complete or (
+            self.config.phase == CreditPhase.PROFILING
+            and self.lifecycle.timeout_triggered
+        )
 
     def _lane_root_corr(self, snapshot: TrajectorySnapshot) -> str | None:
         """Tree-root id shared by every stream of a snapshot lane.
