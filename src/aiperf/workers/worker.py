@@ -34,6 +34,7 @@ from aiperf.common.messages import (
     DatasetConfiguredNotification,
     ErrorMessage,
     InferenceResultsMessage,
+    SessionProviderDepartureNotification,
     WorkerHealthMessage,
 )
 from aiperf.common.messages.dataset_messages import (
@@ -565,6 +566,8 @@ class Worker(BaseComponentService, ProcessHealthMixin):
             ),
             accept_usage_only_warmup=self.run.cfg.warmup_accept_usage_only,
         )
+        self.inference_client.depart_root = self.depart_provider_root
+        self.inference_client.attempt_callback = self._send_inference_result_message
         self.attach_child_lifecycle(self.inference_client)
         self.debug(
             lambda: (
@@ -633,6 +636,34 @@ class Worker(BaseComponentService, ProcessHealthMixin):
     async def _send_worker_ready_message(self) -> None:
         """Send WorkerReady to announce presence."""
         await self.credit_dealer_client.send(WorkerReady(worker_id=self.service_id))
+
+    async def depart_provider_root(
+        self, root_correlation_id: str, observed_ns: int
+    ) -> None:
+        """Apply the local gate before publishing closure to sibling workers."""
+        published = getattr(self, "_published_provider_departures", None)
+        if published is None:
+            published = self._published_provider_departures = set()
+        already_closed = root_correlation_id in published
+        published.add(root_correlation_id)
+        self.inference_client.apply_provider_departure(root_correlation_id, observed_ns)
+        if not already_closed:
+            await self.publish(
+                SessionProviderDepartureNotification(
+                    service_id=self.service_id,
+                    root_correlation_id=root_correlation_id,
+                    observed_ns=observed_ns,
+                )
+            )
+
+    @on_message(MessageType.SESSION_PROVIDER_DEPARTURE)
+    async def _on_provider_departure(
+        self, message: SessionProviderDepartureNotification
+    ) -> None:
+        """Interrupt pending sibling retry waits while active transport drains."""
+        self.inference_client.apply_provider_departure(
+            message.root_correlation_id, message.observed_ns
+        )
 
     @on_message(MessageType.DATASET_CONFIGURED_NOTIFICATION)
     async def _on_dataset_configured(self, msg: DatasetConfiguredNotification) -> None:
@@ -772,6 +803,7 @@ class Worker(BaseComponentService, ProcessHealthMixin):
             credit=credit_context.credit,
             cancelled=credit_context.cancelled,
             first_token_sent=credit_context.first_token_sent,
+            provider_departure=credit_context.provider_departure,
             error=str(credit_context.error) if credit_context.error else None,
             request_latency_ns=credit_context.request_latency_ns,
             inter_token_latency_ns=credit_context.inter_token_latency_ns,
@@ -817,6 +849,15 @@ class Worker(BaseComponentService, ProcessHealthMixin):
         try:
             if not self.inference_client:
                 raise NotInitializedError("Inference server client not initialized.")
+            if (
+                self.inference_client.root_has_departed(
+                    credit_context.credit.effective_root_correlation_id
+                )
+                is True
+            ):
+                credit_context.cancelled = True
+                credit_context.provider_departure = True
+                return
             await self._process_credit(credit_context)
         except Exception as e:
             self.exception(
@@ -850,6 +891,7 @@ class Worker(BaseComponentService, ProcessHealthMixin):
                 credit=credit_context.credit,
                 cancelled=credit_context.cancelled,
                 first_token_sent=credit_context.first_token_sent,
+                provider_departure=credit_context.provider_departure,
                 error=str(credit_context.error) if credit_context.error else None,
                 request_latency_ns=credit_context.request_latency_ns,
                 inter_token_latency_ns=credit_context.inter_token_latency_ns,
@@ -1110,6 +1152,10 @@ class Worker(BaseComponentService, ProcessHealthMixin):
         record = await self.inference_client.send_request(
             request_info, first_token_callback=first_token_callback
         )
+        credit_context.provider_departure = record.retry_terminal_reason in {
+            "http_429_rerouted_away",
+            "root_departed",
+        }
         self._populate_response_metrics(credit_context, record)
         await self._send_inference_result_message(record)
         credit_context.record_emitted = True
@@ -1409,6 +1455,10 @@ class Worker(BaseComponentService, ProcessHealthMixin):
         record = await self.inference_client.send_request(
             request_info, first_token_callback=first_token_callback
         )
+        credit_context.provider_departure = record.retry_terminal_reason in {
+            "http_429_rerouted_away",
+            "root_departed",
+        }
         await self._send_inference_result_message(record)
         credit_context.record_emitted = True
         if record.error is not None:

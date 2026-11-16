@@ -16,6 +16,7 @@ from pydantic import (
     ConfigDict,
     Discriminator,
     Field,
+    field_validator,
     model_validator,
 )
 
@@ -64,6 +65,112 @@ __all__ = [
 # =============================================================================
 # PHASE HIERARCHY
 # =============================================================================
+
+
+class SessionArrivalRateStep(BaseConfig):
+    """A wall-clock change to the new-root arrival rate."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    at_seconds: float = Field(gt=0, description="Profiling offset in seconds.")
+    rate: float = Field(gt=0, description="New sessions per second after this offset.")
+
+
+class SessionArrivalsConfig(BaseConfig):
+    """AGENTIC_REPLAY only: open-loop session arrivals for a profiling phase.
+
+    The warmed ``concurrency`` lanes are the session population at profiling
+    start. New sessions then start at turn 0 on a schedule drawn from this
+    process over the phase duration, and a drained lane is not recycled.
+    Inside a session each turn still waits for the previous reply and then the
+    recorded, capped gap.
+    """
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    rate: Annotated[
+        float,
+        Field(gt=0, description="Mean session arrival rate, sessions per second."),
+    ]
+
+    pattern: Annotated[
+        Literal["poisson", "gamma"],
+        Field(
+            default="poisson",
+            description="Inter-arrival distribution: poisson (exponential) or "
+            "gamma with ``cv``.",
+        ),
+    ]
+
+    cv: Annotated[
+        float | None,
+        Field(
+            default=None,
+            gt=0,
+            description="Gamma only: coefficient of variation of inter-arrival "
+            "times (shape 1/cv^2). 1 is Poisson; larger values are burstier.",
+        ),
+    ]
+
+    ceiling: Annotated[
+        int,
+        Field(
+            gt=0,
+            description="The most sessions the client keeps open at once, in "
+            "place of ``concurrency``. Set it far above the server's capacity: "
+            "an arrival that finds every slot taken waits for one, and "
+            "session_arrivals.json records it as held back.",
+        ),
+    ]
+
+    rate_schedule: tuple[SessionArrivalRateStep, ...] = Field(
+        default=(),
+        description="Ordered profiling-time rate changes; existing trees continue.",
+    )
+
+    seed: int | None = Field(
+        default=None,
+        ge=0,
+        description="Independent schedule seed; None uses the run seed.",
+    )
+
+    @field_validator("rate_schedule", mode="before")
+    @classmethod
+    def _parse_rate_schedule(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [
+                {
+                    "at_seconds": float(pair.split(":")[0]),
+                    "rate": float(pair.split(":")[1]),
+                }
+                for pair in value.split(",")
+                if pair
+            ]
+        return value
+
+    @model_validator(mode="after")
+    def _validate_process(self) -> Self:
+        if any(
+            a.at_seconds >= b.at_seconds
+            for a, b in zip(self.rate_schedule, self.rate_schedule[1:], strict=False)
+        ):
+            raise ValueError("session arrival rate offsets must strictly increase")
+        if self.pattern == "gamma" and self.cv is None:
+            raise ValueError("gamma session arrivals need cv")
+        if self.pattern == "poisson" and self.cv not in (None, 1.0):
+            raise ValueError(
+                f"Poisson arrivals have CV 1, not {self.cv}; use pattern gamma"
+            )
+        return self
+
+    @property
+    def effective_cv(self) -> float:
+        """The CV of the process: ``cv``, or 1 for Poisson."""
+        return 1.0 if self.cv is None else self.cv
+
+    @property
+    def gamma_shape(self) -> float:
+        """Gamma shape for this CV (``--arrival-smoothness`` in request-rate mode)."""
+        return 1.0 / (self.effective_cv * self.effective_cv)
 
 
 class BasePhaseConfig(AdaptiveScalePhaseMixin, BaseConfig):
@@ -538,6 +645,11 @@ class ConcurrencyPhase(BasePhaseConfig):
         ),
     ]
 
+    session_arrivals: SessionArrivalsConfig | None = Field(
+        default=None,
+        description="Open-loop new-root arrivals; drained sessions are not replaced.",
+    )
+
     agentic_concurrency_schedule: ConcurrencySchedule = Field(
         default=(),
         description="AgentX-only wall-clock session targets within one profiling phase. "
@@ -546,8 +658,39 @@ class ConcurrencyPhase(BasePhaseConfig):
     )
 
     @model_validator(mode="after")
+    def _validate_session_arrivals(self) -> Self:
+        """The arrival process owns admission, duration and ceiling together."""
+        if self.session_arrivals is not None:
+            if self.agentic_concurrency_schedule:
+                raise ValueError(
+                    "session arrivals and concurrency schedule are mutually exclusive"
+                )
+            if (
+                self.kind != "profiling"
+                or self.duration is None
+                or self.requests is not None
+                or self.sessions is not None
+            ):
+                raise ValueError(
+                    "session arrivals require a duration-only profiling phase"
+                )
+            if self.concurrency_ramp is not None or self.adaptive_scale:
+                raise ValueError(
+                    "session arrivals cannot combine with ramp or adaptive scale"
+                )
+            if self.session_arrivals.ceiling < self.concurrency:
+                raise ValueError("session ceiling is below the warmed concurrency")
+            if any(
+                step.at_seconds >= self.duration
+                for step in self.session_arrivals.rate_schedule
+            ):
+                raise ValueError("session arrival rate offsets must precede phase end")
+        return self
+
+    @model_validator(mode="after")
     def _validate_agentic_schedule(self) -> Self:
         """Keep one profiling phase and preserve its initial baseline lanes."""
+
         if self.agentic_concurrency_schedule:
             if self.kind != "profiling" or self.type != PhaseType.CONCURRENCY:
                 raise ValueError(

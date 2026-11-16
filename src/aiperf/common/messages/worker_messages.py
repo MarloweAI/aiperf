@@ -39,3 +39,18 @@ class WorkerStatusSummaryMessage(BaseServiceMessage):
         ...,
         description="A mapping of worker IDs to their status",
     )
+
+
+class SessionProviderDepartureNotification(BaseServiceMessage):
+    """A measured profiling refusal closes one root to subsequent dispatch."""
+
+    request_ns: int | None = Field(
+        default=None,
+        ge=0,
+        description="Optional notification request wall time, nanoseconds.",
+    )
+    message_type: MessageTypeT = MessageType.SESSION_PROVIDER_DEPARTURE
+    root_correlation_id: str = Field(description="Whole session-tree root identity.")
+    observed_ns: int = Field(
+        ge=0, description="Worker wall time when HTTP 429 was observed."
+    )

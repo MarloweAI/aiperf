@@ -20,6 +20,7 @@ from aiperf.common.enums import (
 )
 from aiperf.common.models import AIPerfBaseModel
 from aiperf.config.endpoint import EndpointDefaults, TemplateConfig
+from aiperf.config.retry_options import RetryOptionsMixin
 from aiperf.plugin.enums import EndpointType, TransportType
 
 if TYPE_CHECKING:
@@ -54,7 +55,7 @@ class ModelListInfo(AIPerfBaseModel):
     )
 
 
-class EndpointInfo(AIPerfBaseModel):
+class EndpointInfo(AIPerfBaseModel, RetryOptionsMixin):
     """Information about an endpoint."""
 
     type: EndpointType = Field(
@@ -107,21 +108,6 @@ class EndpointInfo(AIPerfBaseModel):
         default=EndpointDefaults.TIMEOUT,
         gt=0,
         description="The timeout in seconds for each request to the endpoint.",
-    )
-    retry_failed_requests: bool = Field(
-        default=EndpointDefaults.RETRY_FAILED_REQUESTS,
-        description="Retry requests that fail with 5xx, 429, a connection error or an "
-        "incomplete stream.",
-    )
-    retry_wait_seconds: float = Field(
-        default=EndpointDefaults.RETRY_WAIT_SECONDS,
-        gt=0,
-        description="Seconds to wait before each retry.",
-    )
-    retry_max_attempts: int = Field(
-        default=EndpointDefaults.RETRY_MAX_ATTEMPTS,
-        ge=0,
-        description="Maximum attempts per request including the first (0 = no limit).",
     )
     extra: list[tuple[str, Any]] = Field(
         default=[],
@@ -224,7 +210,18 @@ class ModelEndpointInfo(AIPerfBaseModel):
                 headers=list((getattr(ep, "headers", {}) or {}).items()),
                 extra=list((getattr(ep, "extra", {}) or {}).items()),
                 timeout=ep.timeout,
+                retry_policy=ep.retry_policy,
+                retry_server_hints=ep.retry_server_hints,
+                retry_on_429=ep.retry_on_429,
+                retry_max_elapsed_seconds=ep.retry_max_elapsed_seconds,
+                retry_backoff_factor=ep.retry_backoff_factor,
+                retry_max_wait_seconds=ep.retry_max_wait_seconds,
+                retry_jitter_fraction=ep.retry_jitter_fraction,
+                retry_phases=ep.retry_phases,
+                retry_partial_stream=ep.retry_partial_stream,
+                retry_jitter_seed=ep.retry_jitter_seed,
                 retry_failed_requests=ep.retry_failed_requests,
+                retry_failed_warmup_requests=ep.retry_failed_warmup_requests,
                 retry_wait_seconds=ep.retry_wait_seconds,
                 retry_max_attempts=ep.retry_max_attempts,
                 api_key=ep.api_key,

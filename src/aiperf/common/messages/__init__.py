@@ -78,11 +78,13 @@ from aiperf.common.messages.telemetry_messages import (
     TelemetryStatusMessage,
 )
 from aiperf.common.messages.worker_messages import (
+    SessionProviderDepartureNotification,
     WorkerHealthMessage,
     WorkerStatusSummaryMessage,
 )
 
 __all__ = [
+    "SessionProviderDepartureNotification",
     "AllRecordsReceivedMessage",
     "BaseServiceErrorMessage",
     "BaseServiceMessage",

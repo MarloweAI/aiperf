@@ -374,9 +374,63 @@ Maximum time in seconds to wait for each HTTP request to complete, including con
 <br/>_Constraints: > 0_
 <br/>_Default: `21600`_
 
+#### `--retry-policy` `<str>`
+
+Local retry schedule; None preserves explicit legacy retry flags.
+
+#### `--retry-server-hints` `<str>`
+
+Selection of allowed server retry hints.
+<br/>_Default: `ignore`_
+
+#### `--retry-on-429` `<str>`
+
+Profiling action on HTTP 429; warmup always follows retry policy.
+<br/>_Default: `follow_retry_policy`_
+
+#### `--retry-max-elapsed-seconds` `<float>`
+
+Whole logical-request deadline in seconds; new policies default to 120.
+
+#### `--retry-backoff-factor` `<float>`
+
+Exponential retry multiplier.
+<br/>_Default: `2`_
+
+#### `--retry-max-wait-seconds` `<float>`
+
+Local wait cap including jitter, seconds.
+<br/>_Default: `30`_
+
+#### `--retry-jitter-fraction` `<float>`
+
+Additional seeded jitter fraction.
+<br/>_Default: `0`_
+
+#### `--retry-phases` `<str>`
+
+Phases eligible for retry.
+<br/>_Default: `all`_
+
+#### `--retry-partial-stream` `<str>`
+
+Explicit replay of partial output.
+<br/>_Default: `stop`_
+
+#### `--retry-jitter-seed` `<int>`
+
+Independent retry random seed.
+<br/>_Constraints: ≥ 0_
+<br/>_Default: `42`_
+
 #### `--retry-failed-requests`
 
 Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`. The conversation waits for its retried turn, and latency and TTFT are measured from the first attempt. For reliability experiments; leave off for performance measurements.
+<br/>_Flag (no value required)_
+
+#### `--retry-failed-warmup-requests`
+
+Retry only warmup requests, with the same rules, wait and attempt cap as --retry-failed-requests. A router that refuses the warmup burst (429 or 503) then delays the warmup instead of failing it, while profiling requests stay first attempts. Has no effect when --retry-failed-requests is set.
 <br/>_Flag (no value required)_
 
 #### `--retry-wait-seconds` `<float>`
@@ -1120,6 +1174,29 @@ Hard ceiling (seconds) for observed runtime idle time within each AgentX traject
 
 AGENTIC_REPLAY only: maximum time in seconds the replay may remain globally idle while future requests are scheduled. When no requests are in flight or ready, all pending request timers shift earlier uniformly so the next request arrives within this limit. Per-trace timing is otherwise preserved. None disables the cap.
 <br/>_Constraints: ≥ 0.0_
+
+#### `--session-arrival-rate` `<float>`
+
+AGENTIC_REPLAY only: start new sessions open loop, at this mean rate in sessions per second, instead of recycling a lane when its session tree drains. The warmed --concurrency lanes are the session population at profiling start. Each arrival starts a trace at turn 0; inside a session each turn still waits for the previous reply and then the recorded, capped gap. Needs --benchmark-duration and --session-concurrency-ceiling.
+<br/>_Constraints: > 0_
+
+#### `--session-arrival-pattern` `<str>`
+
+AGENTIC_REPLAY only: inter-arrival distribution of --session-arrival-rate: poisson (default) or gamma with --session-arrival-cv.
+
+#### `--session-arrival-cv` `<float>`
+
+AGENTIC_REPLAY only: coefficient of variation of session inter-arrival times for --session-arrival-pattern gamma (shape 1/CV^2). 1 is Poisson; larger values are burstier.
+<br/>_Constraints: > 0_
+
+#### `--session-concurrency-ceiling` `<int>`
+
+AGENTIC_REPLAY only: the most sessions the client keeps open at once under --session-arrival-rate, in place of --concurrency. Set it far above the server's capacity: an arrival that finds every slot taken waits for one, and session_arrivals.json records it as held back.
+<br/>_Constraints: > 0_
+
+#### `--session-arrival-schedule` `<str>`
+
+Profiling rate changes as seconds:rate comma-separated pairs.
 
 #### `--agentic-concurrency-schedule` `<str>`
 
@@ -1952,9 +2029,63 @@ Maximum time in seconds to wait for each HTTP request to complete, including con
 <br/>_Constraints: > 0_
 <br/>_Default: `21600`_
 
+#### `--retry-policy` `<str>`
+
+Local retry schedule; None preserves explicit legacy retry flags.
+
+#### `--retry-server-hints` `<str>`
+
+Selection of allowed server retry hints.
+<br/>_Default: `ignore`_
+
+#### `--retry-on-429` `<str>`
+
+Profiling action on HTTP 429; warmup always follows retry policy.
+<br/>_Default: `follow_retry_policy`_
+
+#### `--retry-max-elapsed-seconds` `<float>`
+
+Whole logical-request deadline in seconds; new policies default to 120.
+
+#### `--retry-backoff-factor` `<float>`
+
+Exponential retry multiplier.
+<br/>_Default: `2`_
+
+#### `--retry-max-wait-seconds` `<float>`
+
+Local wait cap including jitter, seconds.
+<br/>_Default: `30`_
+
+#### `--retry-jitter-fraction` `<float>`
+
+Additional seeded jitter fraction.
+<br/>_Default: `0`_
+
+#### `--retry-phases` `<str>`
+
+Phases eligible for retry.
+<br/>_Default: `all`_
+
+#### `--retry-partial-stream` `<str>`
+
+Explicit replay of partial output.
+<br/>_Default: `stop`_
+
+#### `--retry-jitter-seed` `<int>`
+
+Independent retry random seed.
+<br/>_Constraints: ≥ 0_
+<br/>_Default: `42`_
+
 #### `--retry-failed-requests`
 
 Retry a request that fails with HTTP 5xx or 429, a connection error, or a stream that ends before `data: [DONE]`. The conversation waits for its retried turn, and latency and TTFT are measured from the first attempt. For reliability experiments; leave off for performance measurements.
+<br/>_Flag (no value required)_
+
+#### `--retry-failed-warmup-requests`
+
+Retry only warmup requests, with the same rules, wait and attempt cap as --retry-failed-requests. A router that refuses the warmup burst (429 or 503) then delays the warmup instead of failing it, while profiling requests stay first attempts. Has no effect when --retry-failed-requests is set.
 <br/>_Flag (no value required)_
 
 #### `--retry-wait-seconds` `<float>`
@@ -2698,6 +2829,29 @@ Hard ceiling (seconds) for observed runtime idle time within each AgentX traject
 
 AGENTIC_REPLAY only: maximum time in seconds the replay may remain globally idle while future requests are scheduled. When no requests are in flight or ready, all pending request timers shift earlier uniformly so the next request arrives within this limit. Per-trace timing is otherwise preserved. None disables the cap.
 <br/>_Constraints: ≥ 0.0_
+
+#### `--session-arrival-rate` `<float>`
+
+AGENTIC_REPLAY only: start new sessions open loop, at this mean rate in sessions per second, instead of recycling a lane when its session tree drains. The warmed --concurrency lanes are the session population at profiling start. Each arrival starts a trace at turn 0; inside a session each turn still waits for the previous reply and then the recorded, capped gap. Needs --benchmark-duration and --session-concurrency-ceiling.
+<br/>_Constraints: > 0_
+
+#### `--session-arrival-pattern` `<str>`
+
+AGENTIC_REPLAY only: inter-arrival distribution of --session-arrival-rate: poisson (default) or gamma with --session-arrival-cv.
+
+#### `--session-arrival-cv` `<float>`
+
+AGENTIC_REPLAY only: coefficient of variation of session inter-arrival times for --session-arrival-pattern gamma (shape 1/CV^2). 1 is Poisson; larger values are burstier.
+<br/>_Constraints: > 0_
+
+#### `--session-concurrency-ceiling` `<int>`
+
+AGENTIC_REPLAY only: the most sessions the client keeps open at once under --session-arrival-rate, in place of --concurrency. Set it far above the server's capacity: an arrival that finds every slot taken waits for one, and session_arrivals.json records it as held back.
+<br/>_Constraints: > 0_
+
+#### `--session-arrival-schedule` `<str>`
+
+Profiling rate changes as seconds:rate comma-separated pairs.
 
 #### `--agentic-concurrency-schedule` `<str>`
 

@@ -310,6 +310,13 @@ class BranchOrchestrator:
         # timers uniformly with every other replay timer. The task set is a
         # compatibility fallback for isolated callers that provide no scheduler.
         self._delayed_dispatch_tasks: set[asyncio.Task] = set()
+        # Children whose next request waits on a shared-scheduler timer: a
+        # delayed first turn (child x_correlation_id -> (child, parent)) or a
+        # delayed continuation. The phase runner cancels those timers at the
+        # sending cutoff without running them, so expire_replay_deadlines
+        # settles each one as a refused dispatch.
+        self._timed_first_turns: dict[str, tuple[Any, str]] = {}
+        self._timed_continuations: set[str] = set()
         # Drain observer: sync callback fired after state mutations that may
         # drain has_pending_branch_work() to False. Wired by
         # CreditCallbackHandler.set_branch_orchestrator to re-evaluate the
@@ -374,6 +381,8 @@ class BranchOrchestrator:
         ]
         parents = {root_correlation_id, *children}
         for child in children:
+            self._timed_first_turns.pop(child, None)
+            self._timed_continuations.discard(child)
             await self.on_child_stopped(child)
         for parent in parents:
             self._active_joins.pop(parent, None)
@@ -1283,6 +1292,7 @@ class BranchOrchestrator:
         callers without a scheduler retain the legacy task/sleep fallback.
         """
         if self._scheduler is not None:
+            self._timed_first_turns[child.x_correlation_id] = (child, parent_corr)
             self._scheduler.schedule_later(
                 offset_ms / 1000.0,
                 self._dispatch_first_turn_after_offset(child, 0.0, parent_corr),
@@ -1311,6 +1321,7 @@ class BranchOrchestrator:
         the intercept path's locking.
         """
         await self._sleep_offset_ms(offset_ms)
+        self._timed_first_turns.pop(child.x_correlation_id, None)
         if self._cleaning_up:
             return
         async with self._parent_locks[parent_corr]:
@@ -1513,16 +1524,42 @@ class BranchOrchestrator:
         await self._release_blocked_join(pending)
         self._notify_drain()
 
+    def child_awaits_timer(self, child_x_correlation_id: str) -> None:
+        """Record that a child's next turn waits on a shared-scheduler timer."""
+        self._timed_continuations.add(child_x_correlation_id)
+
+    def child_timer_fired(self, child_x_correlation_id: str) -> None:
+        """Forget a child's timer once its dispatch runs."""
+        self._timed_continuations.discard(child_x_correlation_id)
+
     async def expire_replay_deadlines(self) -> None:
-        """Drain active joins after phase scheduling has stopped.
+        """Settle replay timers that phase scheduling cancelled.
 
         ``PhaseRunner`` cancels the shared scheduler when the phase stops
-        sending. Any join timer still pending at that boundary can no longer
-        become a legal replay dispatch, so mark its timing condition complete
-        and let the issuer's normal stop condition suppress it once its child
-        condition is also complete. This preserves the two-condition join
-        state machine without leaving cancelled timers as phantom DAG work.
+        sending. Any timer still pending at that boundary can no longer become
+        a legal replay dispatch. A child whose next turn was such a timer is
+        settled exactly as if that dispatch had been refused: a delayed first
+        turn rolls back, and a delayed continuation stops the child. A join
+        timer has its timing condition marked complete, and the issuer's
+        normal stop condition suppresses the join once its child condition is
+        also complete. Without this, cancelled timers stay phantom DAG work
+        and hold the phase open until its grace period expires.
         """
+        timed_first_turns = list(self._timed_first_turns.values())
+        timed_continuations = list(self._timed_continuations)
+        self._timed_first_turns.clear()
+        self._timed_continuations.clear()
+        for child, parent_corr in timed_first_turns:
+            if child.x_correlation_id not in self._child_to_join:
+                continue
+            async with self._parent_locks[parent_corr]:
+                self._rollback_failed_first_turn(
+                    child, ChildDispatchResult.REJECTED, parent_corr
+                )
+                await self._finalize_failed_dispatches(parent_corr)
+        for child_corr in timed_continuations:
+            await self.on_child_stopped(child_corr)
+
         releasable: list[PendingBranchJoin] = []
         for parent_corr, pending in list(self._active_joins.items()):
             pending.replay_deadline_elapsed = True
@@ -1799,6 +1836,8 @@ class BranchOrchestrator:
         for task in self._delayed_dispatch_tasks:
             task.cancel()
         self._delayed_dispatch_tasks.clear()
+        self._timed_first_turns.clear()
+        self._timed_continuations.clear()
         s = self.stats
         logger.info(
             "BranchOrchestrator stats: spawned=%d completed=%d errored=%d "
