@@ -683,8 +683,9 @@ resolvable HF repo name (a local server alias, a private build), pass
 [Tokenizer Auto-Detection](../reference/tokenizer-auto-detection.md).
 
 **Run aborts early: `aborting run early (broadcasting ProfileCancelCommand)` / warmup failure**
-Your inference server rejected a warmup request. Each warmup request gets
-exactly one attempt — there is no retry — and AgentX MVP aborts on the
+Your inference server rejected a warmup request. Without an explicit retry
+policy or the legacy warmup retry flag, each warmup request gets one attempt.
+AgentX MVP aborts on the
 **first** terminal root-conversation warmup failure rather than producing a
 partial result: the run cancels immediately and the failing trace is named
 in the `WARNING` log. Check the AIPerf and
@@ -694,6 +695,58 @@ failure (`401`/`403`: pass `--api-key`), a model-name mismatch
 (`404` / `model not found`: `--model` doesn't match what the server is
 serving), or the server's `max-model-len` set lower than the trace's
 requested context.
+
+## Open-loop session arrivals
+
+AgentX can start new root sessions on an independent arrival process instead of
+replacing each tree when it drains. `--concurrency` remains the successfully
+warmed starting population. Add `--session-arrival-rate` and an explicit
+`--session-concurrency-ceiling`; the ceiling limits open trees and is recorded as
+client-side holdback when reached. This requires one duration-bounded profiling
+phase and cannot combine with request/session counts, concurrency schedules,
+ramps or adaptive scaling.
+
+Use `--session-arrival-schedule 900:0.4,1200:0.1` with a baseline arrival rate of
+`0.1` to raise new roots to 0.4 sessions/s at profiling second 900 and return to
+0.1 at second 1200. Existing sessions continue at both boundaries. Poisson
+intervals carry residual hazard across rate boundaries; Gamma arrivals retain
+the existing CV control. This controls session arrivals, not fixed HTTP RPS:
+dependencies, retries and the ceiling still affect request delivery.
+
+Timestamps and corpus assignments are fixed before profiling, independently of
+response order and retry RNG. `session_arrivals.json` schema 2 retains those
+planned lists, canonical hashes, initial warmed assignments, actual release/start
+times, holdback, root lifecycle events and departures. Run-local correlation IDs
+and cache markers retain the existing isolation behavior. The lifecycle is
+`complete` only after native phase completion, zero in-flight requests and no
+grace timeout. Missing snapshot remaining-work counts stay unknown.
+
+## Explicit retry policy
+
+The CLI reference owns the [retry options](../cli-options.md). Existing
+`--retry-failed-requests` and `--retry-failed-warmup-requests` keep their legacy
+fixed-wait behavior, including an explicitly visible unbounded choice. Do not
+combine them with `--retry-policy`.
+
+New policies default to six total attempts, a 120-second logical budget, a
+10-second local wait, exponential factor 2, a 30-second local cap, no jitter,
+ignored hints and no replay of partial output. Choose each experiment's values
+explicitly. For example, fixed five-second retries with 241 total attempts and a
+1,200-second budget use `--retry-policy fixed --retry-wait-seconds 5
+--retry-max-wait-seconds 5 --retry-max-attempts 241
+--retry-max-elapsed-seconds 1200 --retry-jitter-fraction 0
+--retry-server-hints ignore`. Replaying cut streams additionally requires
+`--retry-partial-stream retry`. Attempt timeouts include remaining logical budget.
+
+`--retry-on-429 leave_provider` models a profiling session leaving this provider:
+the 429 remains recorded, the whole root tree admits no further work, waiting
+retries stop and active HTTP operations drain. Warmup still uses the selected
+retry policy and must succeed. No replacement root is admitted to refill a lane;
+independent scheduled arrivals continue. No alternative provider is contacted
+and its completion is unknown. Departure observation and notification times,
+plus actual transport starts where available, make propagation visible. Any HTTP
+attempt starting after the observed root refusal fails policy qualification;
+complete export alone does not prove this condition.
 
 **Run completes but `submission_valid: false` with `"context_overflow_rate_exceeded"`**
 Your server is rejecting prompts as too long for more than 1% of requests.

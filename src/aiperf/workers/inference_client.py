@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
+import uuid
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -24,6 +27,13 @@ from aiperf.common.redact import redact_headers
 from aiperf.plugin import plugins
 from aiperf.plugin.enums import PluginType, TransportType
 from aiperf.records.usage_only_warmup import body_streams_one_token
+from aiperf.workers.retry_policy import (
+    decide_retry,
+    remaining_attempt_seconds,
+    resolve_retry_policy,
+    retry_hint_from_record,
+    retry_jitter_draw,
+)
 
 if TYPE_CHECKING:
     from aiperf.transports.base_transports import FirstTokenCallback
@@ -157,6 +167,8 @@ class InferenceClient(AIPerfLifecycleMixin):
         super().__init__(model_endpoint=model_endpoint, service_id=service_id, **kwargs)
         self.model_endpoint = model_endpoint
         self.service_id = service_id
+        self._provider_departures: dict[str, asyncio.Event] = {}
+        self.provider_departure_times: dict[str, dict[str, int]] = {}
         # When True, omit canonical request payload bytes from the slim
         # RecordContext after dispatch (memory optimization for large prompts).
         # Resolved by the worker via record payload-retention auto-detection.
@@ -280,6 +292,32 @@ class InferenceClient(AIPerfLifecycleMixin):
                 error=ErrorDetails.from_exception(e),
             )
 
+    def provider_departure_event(self, root_correlation_id: str) -> asyncio.Event:
+        """Shared per-worker gate for every concurrent turn/retry of one root."""
+        return self._provider_departures.setdefault(
+            root_correlation_id, asyncio.Event()
+        )
+
+    def root_has_departed(self, root_correlation_id: str) -> bool:
+        """True once a local or remote measured refusal closed this root."""
+        return self.provider_departure_event(root_correlation_id).is_set()
+
+    def apply_provider_departure(
+        self,
+        root_correlation_id: str,
+        observed_ns: int,
+        *,
+        applied_ns: int | None = None,
+    ) -> None:
+        """Close retries without cancelling any already-active HTTP operation."""
+        self.provider_departure_event(root_correlation_id).set()
+        previous = self.provider_departure_times.get(root_correlation_id)
+        if previous is None or observed_ns < previous["observed_ns"]:
+            self.provider_departure_times[root_correlation_id] = {
+                "observed_ns": observed_ns,
+                "applied_ns": applied_ns if applied_ns is not None else time.time_ns(),
+            }
+
     async def send_request(
         self,
         request_info: RequestInfo,
@@ -301,11 +339,24 @@ class InferenceClient(AIPerfLifecycleMixin):
             )
         if self.is_trace_enabled and request_info.turns:
             self.trace(f"Calling inference API for turn: {request_info.turns[-1]}")
-        record = await self._send_request_internal(request_info, first_token_callback)
         endpoint = self.model_endpoint.endpoint
-        if endpoint.retry_failed_requests or (
-            endpoint.retry_failed_warmup_requests
-            and request_info.credit_phase == CreditPhase.WARMUP
+        if (
+            endpoint.retry_policy is not None
+            or endpoint.retry_on_429 == "leave_provider"
+        ):
+            record = await self._send_with_retry_policy(
+                request_info, first_token_callback
+            )
+        else:
+            record = await self._send_request_internal(
+                request_info, first_token_callback
+            )
+        if endpoint.retry_policy is None and (
+            endpoint.retry_failed_requests
+            or (
+                endpoint.retry_failed_warmup_requests
+                and request_info.credit_phase == CreditPhase.WARMUP
+            )
         ):
             record = await self._retry_until_final(
                 record, request_info, first_token_callback
@@ -316,7 +367,130 @@ class InferenceClient(AIPerfLifecycleMixin):
         request_info.endpoint_headers = (
             redact_headers(request_info.endpoint_headers) or {}
         )
-        return self._finalize_request_record(record=record, request_info=request_info)
+        final_info = (
+            record.request_info
+            if endpoint.retry_policy is not None
+            and isinstance(record.request_info, RequestInfo)
+            else request_info
+        )
+        return self._finalize_request_record(record=record, request_info=final_info)
+
+    async def _send_with_retry_policy(
+        self, request_info: RequestInfo, first_token_callback: FirstTokenCallback | None
+    ) -> RequestRecord:
+        """Run one resolved policy, retaining ordinary native rows for retries."""
+        endpoint = self.model_endpoint.endpoint
+        policy = resolve_retry_policy(endpoint, str(request_info.credit_phase))
+        root = request_info.root_correlation_id or request_info.x_correlation_id
+        departed = self.provider_departure_event(root)
+        logical_id = request_info.x_request_id
+        started = time.perf_counter()
+        attempt = 1
+        while True:
+            elapsed = time.perf_counter() - started
+            timeout = remaining_attempt_seconds(policy, elapsed, endpoint.timeout)
+            info = (
+                request_info
+                if attempt == 1
+                else request_info.model_copy(update={"x_request_id": str(uuid.uuid4())})
+            )
+            if departed.is_set():
+                raise asyncio.CancelledError("root departed before transport dispatch")
+            if timeout <= 0:
+                record = RequestRecord(
+                    request_info=info,
+                    error=ErrorDetails(
+                        type="LogicalRequestStopped",
+                        message="root_departed"
+                        if departed.is_set()
+                        else "logical_deadline",
+                    ),
+                )
+                record.retry_terminal_reason = (
+                    "root_departed" if departed.is_set() else "logical_deadline"
+                )
+                return record
+            record = await self._send_policy_attempt(
+                info, first_token_callback, timeout
+            )
+            hint = retry_hint_from_record(record)
+            decision = decide_retry(
+                policy,
+                attempt_number=attempt,
+                elapsed_seconds=time.perf_counter() - started,
+                status_code=record.error.code
+                if record.error is not None
+                else record.status,
+                retryable=is_retryable_error(record.error),
+                partial_output=bool(record.responses) and record.error is not None,
+                jitter_draw=retry_jitter_draw(
+                    policy,
+                    conversation_id=request_info.conversation_id,
+                    turn_index=request_info.turn_index,
+                    attempt_number=attempt,
+                ),
+                hint=hint,
+            )
+            record.retry_metadata = {
+                "logical_request_id": logical_id,
+                "attempt_number": attempt,
+                "action": decision.action,
+                "wait_seconds": decision.wait_seconds,
+                "reason": decision.reason,
+                "hint": asdict(hint),
+                "policy_version": policy.version,
+                "resolved_policy": policy.model_dump(),
+            }
+            record.retry_terminal_reason = (
+                decision.reason if decision.action != "retry" else None
+            )
+            if decision.action == "leave_provider":
+                observed_ns = time.time_ns()
+                self.apply_provider_departure(root, observed_ns)
+                notify = getattr(self, "depart_root", None)
+                if notify is not None:
+                    await notify(root, observed_ns)
+                record.retry_metadata["departure"] = self.provider_departure_times[root]
+                return record
+            if decision.action != "retry":
+                return record
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(departed.wait(), decision.wait_seconds)
+            if departed.is_set():
+                record.retry_terminal_reason = "root_departed"
+                record.retry_metadata.update(action="stop", reason="root_departed")
+                record.retry_metadata["departure"] = self.provider_departure_times[root]
+                return record
+            emit = getattr(self, "attempt_callback", None)
+            if emit is not None:
+                await emit(
+                    self._finalize_request_record(record=record, request_info=info)
+                )
+            attempt += 1
+
+    async def _send_policy_attempt(
+        self,
+        info: RequestInfo,
+        first_token_callback: FirstTokenCallback | None,
+        timeout: float,
+    ) -> RequestRecord:
+        """One HTTP operation, with a remaining logical budget applied."""
+        endpoint = self.model_endpoint.endpoint
+        try:
+            async with asyncio.timeout(timeout):
+                record = await self._send_request_internal(info, first_token_callback)
+        except TimeoutError:
+            record = RequestRecord(
+                request_info=info,
+                error=ErrorDetails(
+                    type="TimeoutError",
+                    message="logical request or HTTP deadline expired",
+                ),
+            )
+        record.request_info = info
+        if endpoint.streaming and str(endpoint.type) in DONE_TERMINATED_ENDPOINTS:
+            mark_incomplete_stream(record)
+        return record
 
     async def _retry_until_final(
         self,

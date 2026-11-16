@@ -96,6 +96,7 @@ class SessionTreeRegistry:
         # FIRST child completion while siblings still run (premature drain).
         self._pending_descendants: dict[str, int] = {}
         self._requests: dict[str, int] = {}
+        self._issued_turns: dict[str, int] = {}
         self._retired_roots: set[str] = set()
         # Peak simultaneously-open trees == peak session-slot occupancy. The
         # whole point of per-tree accounting is that this never exceeds the
@@ -167,6 +168,11 @@ class SessionTreeRegistry:
     def on_request_issued(self, root_corr: str) -> None:
         """Count dispatched HTTP work, including children issued before tree open."""
         self._requests[root_corr] = self._requests.get(root_corr, 0) + 1
+        self._issued_turns[root_corr] = self._issued_turns.get(root_corr, 0) + 1
+
+    def issued_turn_count(self, root_corr: str) -> int:
+        """Logical turns issued by this tree; retries remain within a credit."""
+        return self._issued_turns.get(root_corr, 0)
 
     def on_request_returned(self, root_corr: str) -> None:
         """Release a retiring tree after its final already-dispatched request."""
@@ -274,6 +280,7 @@ class SessionTreeRegistry:
         self._concurrency_manager.release_session_slot(state.phase)
         if self._on_drain is not None:
             self._on_drain(root_corr, state.phase)
+        self._issued_turns.pop(root_corr, None)
         return True
 
     def release_all(self, phase: PhaseRuntimeKey) -> int:
@@ -294,6 +301,7 @@ class SessionTreeRegistry:
                 continue
             state.released = True
             self._requests.pop(root_corr, None)
+            self._issued_turns.pop(root_corr, None)
             self._concurrency_manager.release_session_slot(phase)
         return len(to_release)
 

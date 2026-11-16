@@ -1344,6 +1344,18 @@
                       "description": "AGENTIC_REPLAY only: grace period in seconds the auto-synthesized warmup barrier waits for in-flight priming requests after the warmup burst sends. Read off the profiling phase by ``timing.config._build_agentic_warmup_config`` (the agentic warmup is not a user-declared phase, so it does not inherit ``--warmup-grace-period``, which requires ``--warmup-duration``). None waits indefinitely (the agentic warmup must complete every primed trajectory before profiling starts).",
                       "title": "Agenticwarmupgraceperiod"
                     },
+                    "sessionArrivals": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/SessionArrivalsConfig"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Open-loop new-root arrivals; drained sessions are not replaced."
+                    },
                     "agenticConcurrencySchedule": {
                       "default": [],
                       "description": "AgentX-only wall-clock session targets within one profiling phase. Added lanes stop admitting turns when removed; existing HTTP requests drain. The initial concurrency lanes remain continuous throughout the phase.",
@@ -5247,6 +5259,18 @@
                   "description": "AGENTIC_REPLAY only: grace period in seconds the auto-synthesized warmup barrier waits for in-flight priming requests after the warmup burst sends. Read off the profiling phase by ``timing.config._build_agentic_warmup_config`` (the agentic warmup is not a user-declared phase, so it does not inherit ``--warmup-grace-period``, which requires ``--warmup-duration``). None waits indefinitely (the agentic warmup must complete every primed trajectory before profiling starts).",
                   "title": "Agenticwarmupgraceperiod"
                 },
+                "sessionArrivals": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SessionArrivalsConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Open-loop new-root arrivals; drained sessions are not replaced."
+                },
                 "agenticConcurrencySchedule": {
                   "default": [],
                   "description": "AgentX-only wall-clock session targets within one profiling phase. Added lanes stop admitting turns when removed; existing HTTP requests drain. The initial concurrency lanes remain continuous throughout the phase.",
@@ -8246,6 +8270,18 @@
                   "default": null,
                   "description": "AGENTIC_REPLAY only: grace period in seconds the auto-synthesized warmup barrier waits for in-flight priming requests after the warmup burst sends. Read off the profiling phase by ``timing.config._build_agentic_warmup_config`` (the agentic warmup is not a user-declared phase, so it does not inherit ``--warmup-grace-period``, which requires ``--warmup-duration``). None waits indefinitely (the agentic warmup must complete every primed trajectory before profiling starts).",
                   "title": "Agenticwarmupgraceperiod"
+                },
+                "sessionArrivals": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SessionArrivalsConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Open-loop new-root arrivals; drained sessions are not replaced."
                 },
                 "agenticConcurrencySchedule": {
                   "default": [],
@@ -11690,6 +11726,18 @@
           "title": "Agenticwarmupgraceperiod",
           "x-jinja2-supported": true
         },
+        "sessionArrivals": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionArrivalsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Open-loop new-root arrivals; drained sessions are not replaced."
+        },
         "agenticConcurrencySchedule": {
           "default": [],
           "description": "AgentX-only wall-clock session targets within one profiling phase. Added lanes stop admitting turns when removed; existing HTTP requests drain. The initial concurrency lanes remain continuous throughout the phase.",
@@ -13056,28 +13104,14 @@
       "additionalProperties": false,
       "description": "Endpoint configuration for connecting to inference servers.\n\nThis section configures how AIPerf connects to and communicates\nwith the target inference server(s). It supports multiple URLs\nfor load-balanced deployments and various API types.",
       "properties": {
-        "urls": {
-          "description": "List of server URLs to benchmark. Requests distributed according to url_strategy. URLs without a scheme have ``http://`` prepended automatically. Example: ['http://localhost:8000/v1/chat/completions']",
-          "items": {
-            "type": "string"
-          },
-          "title": "Urls",
-          "type": "array",
-          "x-kubernetes-preserve-unknown-fields": true
-        },
-        "urlStrategy": {
-          "$ref": "#/$defs/URLSelectionStrategy",
-          "default": "round_robin",
-          "description": "Strategy for distributing requests across multiple URLs. round_robin cycles through URLs in order."
-        },
-        "type": {
-          "$ref": "#/$defs/EndpointType",
-          "default": "chat",
-          "description": "API endpoint type determining request/response format. chat: OpenAI chat completions, completions: OpenAI completions, embeddings: vector embeddings, rankings: reranking, template: custom format, and others — see `aiperf plugins` for the full list."
-        },
-        "path": {
+        "retryPolicy": {
           "anyOf": [
             {
+              "enum": [
+                "off",
+                "fixed",
+                "exponential"
+              ],
               "type": "string"
             },
             {
@@ -13085,32 +13119,157 @@
             }
           ],
           "default": null,
-          "description": "Override default endpoint path. Use for servers with non-standard API paths. Example: '/custom/v2/generate'",
-          "title": "Path"
+          "description": "Local retry schedule; None preserves explicit legacy retry flags.",
+          "title": "Retrypolicy"
         },
-        "apiKey": {
+        "retryServerHints": {
+          "default": "ignore",
+          "description": "Selection of allowed server retry hints.",
+          "enum": [
+            "ignore",
+            "prefer",
+            "minimum"
+          ],
+          "title": "Retryserverhints",
+          "type": "string"
+        },
+        "retryOn429": {
+          "default": "follow_retry_policy",
+          "description": "Profiling action on HTTP 429; warmup always follows retry policy.",
+          "enum": [
+            "follow_retry_policy",
+            "leave_provider"
+          ],
+          "title": "Retryon429",
+          "type": "string"
+        },
+        "retryMaxElapsedSeconds": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "number"
             },
             {
               "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
             }
           ],
-          "description": "API authentication key. Supports environment variable substitution: ${OPENAI_API_KEY}. Can also use ${VAR:default} syntax for defaults.",
-          "title": "Apikey"
+          "default": null,
+          "description": "Whole logical-request deadline in seconds; new policies default to 120.",
+          "title": "Retrymaxelapsedseconds",
+          "x-jinja2-supported": true
         },
-        "timeout": {
-          "default": 21600,
-          "description": "Request timeout in seconds (0 = no timeout). Requests exceeding this duration are marked as failed. Should exceed expected max response time.",
-          "title": "Timeout",
+        "retryBackoffFactor": {
+          "default": 2,
+          "description": "Exponential retry multiplier.",
+          "title": "Retrybackofffactor",
           "oneOf": [
             {
-              "default": 21600,
-              "description": "Request timeout in seconds (0 = no timeout). Requests exceeding this duration are marked as failed. Should exceed expected max response time.",
-              "minimum": 0.0,
-              "title": "Timeout",
+              "default": 2,
+              "description": "Exponential retry multiplier.",
+              "title": "Retrybackofffactor",
               "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "x-jinja2-supported": true
+        },
+        "retryMaxWaitSeconds": {
+          "default": 30,
+          "description": "Local wait cap including jitter, seconds.",
+          "title": "Retrymaxwaitseconds",
+          "oneOf": [
+            {
+              "default": 30,
+              "description": "Local wait cap including jitter, seconds.",
+              "title": "Retrymaxwaitseconds",
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "x-jinja2-supported": true
+        },
+        "retryJitterFraction": {
+          "default": 0,
+          "description": "Additional seeded jitter fraction.",
+          "title": "Retryjitterfraction",
+          "oneOf": [
+            {
+              "default": 0,
+              "description": "Additional seeded jitter fraction.",
+              "title": "Retryjitterfraction",
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "x-jinja2-supported": true
+        },
+        "retryPhases": {
+          "default": "all",
+          "description": "Phases eligible for retry.",
+          "enum": [
+            "all",
+            "warmup"
+          ],
+          "title": "Retryphases",
+          "type": "string"
+        },
+        "retryPartialStream": {
+          "default": "stop",
+          "description": "Explicit replay of partial output.",
+          "enum": [
+            "retry",
+            "stop"
+          ],
+          "title": "Retrypartialstream",
+          "type": "string"
+        },
+        "retryJitterSeed": {
+          "default": 42,
+          "description": "Independent retry random seed.",
+          "title": "Retryjitterseed",
+          "oneOf": [
+            {
+              "default": 42,
+              "description": "Independent retry random seed.",
+              "minimum": 0,
+              "title": "Retryjitterseed",
+              "type": "integer"
             },
             {
               "type": "string",
@@ -13173,6 +13332,75 @@
               "minimum": 0,
               "title": "Retrymaxattempts",
               "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "x-jinja2-supported": true
+        },
+        "urls": {
+          "description": "List of server URLs to benchmark. Requests distributed according to url_strategy. URLs without a scheme have ``http://`` prepended automatically. Example: ['http://localhost:8000/v1/chat/completions']",
+          "items": {
+            "type": "string"
+          },
+          "title": "Urls",
+          "type": "array",
+          "x-kubernetes-preserve-unknown-fields": true
+        },
+        "urlStrategy": {
+          "$ref": "#/$defs/URLSelectionStrategy",
+          "default": "round_robin",
+          "description": "Strategy for distributing requests across multiple URLs. round_robin cycles through URLs in order."
+        },
+        "type": {
+          "$ref": "#/$defs/EndpointType",
+          "default": "chat",
+          "description": "API endpoint type determining request/response format. chat: OpenAI chat completions, completions: OpenAI completions, embeddings: vector embeddings, rankings: reranking, template: custom format, and others — see `aiperf plugins` for the full list."
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Override default endpoint path. Use for servers with non-standard API paths. Example: '/custom/v2/generate'",
+          "title": "Path"
+        },
+        "apiKey": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "API authentication key. Supports environment variable substitution: ${OPENAI_API_KEY}. Can also use ${VAR:default} syntax for defaults.",
+          "title": "Apikey"
+        },
+        "timeout": {
+          "default": 21600,
+          "description": "Request timeout in seconds (0 = no timeout). Requests exceeding this duration are marked as failed. Should exceed expected max response time.",
+          "title": "Timeout",
+          "oneOf": [
+            {
+              "default": 21600,
+              "description": "Request timeout in seconds (0 = no timeout). Requests exceeding this duration are marked as failed. Should exceed expected max response time.",
+              "minimum": 0.0,
+              "title": "Timeout",
+              "type": "number"
             },
             {
               "type": "string",
@@ -20002,6 +20230,191 @@
       ],
       "title": "ServiceRunType",
       "type": "string"
+    },
+    "SessionArrivalRateStep": {
+      "additionalProperties": false,
+      "description": "A wall-clock change to the new-root arrival rate.",
+      "properties": {
+        "atSeconds": {
+          "description": "Profiling offset in seconds.",
+          "title": "Atseconds",
+          "oneOf": [
+            {
+              "description": "Profiling offset in seconds.",
+              "exclusiveMinimum": 0,
+              "title": "Atseconds",
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "x-jinja2-supported": true
+        },
+        "rate": {
+          "description": "New sessions per second after this offset.",
+          "title": "Rate",
+          "oneOf": [
+            {
+              "description": "New sessions per second after this offset.",
+              "exclusiveMinimum": 0,
+              "title": "Rate",
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "x-jinja2-supported": true
+        }
+      },
+      "required": [
+        "atSeconds",
+        "rate"
+      ],
+      "title": "SessionArrivalRateStep",
+      "type": "object"
+    },
+    "SessionArrivalsConfig": {
+      "additionalProperties": false,
+      "description": "AGENTIC_REPLAY only: open-loop session arrivals for a profiling phase.\n\nThe warmed ``concurrency`` lanes are the session population at profiling\nstart. New sessions then start at turn 0 on a schedule drawn from this\nprocess over the phase duration, and a drained lane is not recycled.\nInside a session each turn still waits for the previous reply and then the\nrecorded, capped gap.",
+      "properties": {
+        "rate": {
+          "description": "Mean session arrival rate, sessions per second.",
+          "title": "Rate",
+          "oneOf": [
+            {
+              "description": "Mean session arrival rate, sessions per second.",
+              "exclusiveMinimum": 0,
+              "title": "Rate",
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "x-jinja2-supported": true
+        },
+        "pattern": {
+          "default": "poisson",
+          "description": "Inter-arrival distribution: poisson (exponential) or gamma with ``cv``.",
+          "enum": [
+            "poisson",
+            "gamma"
+          ],
+          "title": "Pattern",
+          "type": "string"
+        },
+        "cv": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "default": null,
+          "description": "Gamma only: coefficient of variation of inter-arrival times (shape 1/cv^2). 1 is Poisson; larger values are burstier.",
+          "title": "Cv",
+          "x-jinja2-supported": true
+        },
+        "ceiling": {
+          "description": "The most sessions the client keeps open at once, in place of ``concurrency``. Set it far above the server's capacity: an arrival that finds every slot taken waits for one, and session_arrivals.json records it as held back.",
+          "title": "Ceiling",
+          "oneOf": [
+            {
+              "description": "The most sessions the client keeps open at once, in place of ``concurrency``. Set it far above the server's capacity: an arrival that finds every slot taken waits for one, and session_arrivals.json records it as held back.",
+              "exclusiveMinimum": 0,
+              "title": "Ceiling",
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "x-jinja2-supported": true
+        },
+        "rateSchedule": {
+          "default": [],
+          "description": "Ordered profiling-time rate changes; existing trees continue.",
+          "items": {
+            "$ref": "#/$defs/SessionArrivalRateStep"
+          },
+          "title": "Rateschedule",
+          "type": "array"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "default": null,
+          "description": "Independent schedule seed; None uses the run seed.",
+          "title": "Seed",
+          "x-jinja2-supported": true
+        }
+      },
+      "required": [
+        "rate",
+        "ceiling"
+      ],
+      "title": "SessionArrivalsConfig",
+      "type": "object"
     },
     "SobolSweep": {
       "additionalProperties": false,

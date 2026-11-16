@@ -30,6 +30,44 @@ from aiperf.plugin.enums import EndpointType
 from aiperf.workers.inference_client import InferenceClient
 
 
+@pytest.mark.asyncio
+@pytest.mark.looptime
+async def test_explicit_fixed_policy_retries_without_legacy_flag(
+    no_wait, time_traveler_no_patch_sleep
+):
+    client, transport = make_client(
+        retry_policy="fixed",
+        retry_wait_seconds=5,
+        retry_max_attempts=241,
+        retry_max_elapsed_seconds=1200,
+    )
+    transport.send_request = AsyncMock(
+        side_effect=[failed(100, 500, "server"), streamed(200, done=True)]
+    )
+    earlier = []
+
+    async def emit(row):
+        earlier.append(row)
+
+    client.attempt_callback = emit
+    record = await client.send_request(request_info(client))
+    assert len(earlier) == 1
+    assert earlier[0].request_info.x_request_id != record.request_info.x_request_id
+    assert transport.send_request.await_count == 2
+    assert record.error is None
+    assert record.retry_metadata["attempt_number"] == 2
+
+
+@pytest.mark.asyncio
+async def test_profile_429_sets_root_departure_without_refusing_warmup(no_wait):
+    client, transport = make_client(retry_policy="fixed", retry_on_429="leave_provider")
+    transport.send_request = AsyncMock(return_value=failed(100, 429, "refused"))
+    record = await client.send_request(request_info(client))
+    assert record.retry_terminal_reason == "http_429_rerouted_away"
+    assert client.root_has_departed("c")
+    assert transport.send_request.await_count == 1
+
+
 def make_client(
     endpoint_type=EndpointType.CHAT, **endpoint_options
 ) -> tuple[InferenceClient, MagicMock]:

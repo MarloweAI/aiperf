@@ -470,6 +470,7 @@ class MessageType(CaseInsensitiveStrEnum):
     SERVER_METRICS_RECORD = "server_metrics_record"
     SERVER_METRICS_STATUS = "server_metrics_status"
     NETWORK_LATENCY_RECORD = "network_latency_record"
+    SESSION_PROVIDER_DEPARTURE = "session_provider_departure"
     WORKER_HEALTH = "worker_health"
     WORKER_STATUS_SUMMARY = "worker_status_summary"
 

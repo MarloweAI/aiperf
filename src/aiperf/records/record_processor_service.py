@@ -271,6 +271,23 @@ class RecordProcessor(PullClientMixin, BaseComponentService):
             x_request_id=record.request_info.x_request_id,
             x_correlation_id=record.request_info.x_correlation_id,
             attempt_count=len(record.retried_errors) + 1,
+            http_dispatch_ns=(
+                record.trace_data.reference_time_ns
+                + record.trace_data.request_send_start_perf_ns
+                - record.trace_data.reference_perf_ns
+            )
+            if record.trace_data is not None
+            and all(
+                isinstance(getattr(record.trace_data, key, None), int)
+                for key in (
+                    "reference_time_ns",
+                    "request_send_start_perf_ns",
+                    "reference_perf_ns",
+                )
+            )
+            else None,
+            retry_terminal_reason=record.retry_terminal_reason,
+            retry_metadata=record.retry_metadata,
             session_num=record.request_info.credit_num,
             worker_id=worker_id,
             was_cancelled=cancellation_time_ns is not None,
