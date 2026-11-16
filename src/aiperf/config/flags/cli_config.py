@@ -56,6 +56,7 @@ from aiperf.common.enums import (
     VideoFormat,
     VideoSynthType,
 )
+from aiperf.common.finite import FiniteFloat
 from aiperf.config.artifacts import OutputDefaults
 from aiperf.config.base import BaseConfig
 from aiperf.config.cli_parameter import CLIParameter, Groups
@@ -229,6 +230,75 @@ class CLIConfig(BaseConfig):
         ),
     ] = EndpointDefaults.TIMEOUT
 
+    retry_policy: Annotated[
+        Literal["off", "fixed", "exponential"] | None,
+        Field(
+            default=None,
+            description="Local retry schedule; None preserves explicit legacy retry flags.",
+        ),
+        CLIParameter(name=("--retry-policy",), group=Groups.ENDPOINT),
+    ]
+
+    retry_server_hints: Annotated[
+        Literal["ignore", "prefer", "minimum"],
+        Field(default="ignore", description="Selection of allowed server retry hints."),
+        CLIParameter(name=("--retry-server-hints",), group=Groups.ENDPOINT),
+    ]
+
+    retry_on_429: Annotated[
+        Literal["follow_retry_policy", "leave_provider"],
+        Field(
+            default="follow_retry_policy",
+            description="Profiling action on HTTP 429; warmup always follows retry policy.",
+        ),
+        CLIParameter(name=("--retry-on-429",), group=Groups.ENDPOINT),
+    ]
+
+    retry_max_elapsed_seconds: Annotated[
+        FiniteFloat | None,
+        Field(
+            default=None,
+            description="Whole logical-request deadline in seconds; new policies default to 120.",
+        ),
+        CLIParameter(name=("--retry-max-elapsed-seconds",), group=Groups.ENDPOINT),
+    ]
+
+    retry_backoff_factor: Annotated[
+        FiniteFloat,
+        Field(default=2, description="Exponential retry multiplier."),
+        CLIParameter(name=("--retry-backoff-factor",), group=Groups.ENDPOINT),
+    ]
+
+    retry_max_wait_seconds: Annotated[
+        FiniteFloat,
+        Field(default=30, description="Local wait cap including jitter, seconds."),
+        CLIParameter(name=("--retry-max-wait-seconds",), group=Groups.ENDPOINT),
+    ]
+
+    retry_jitter_fraction: Annotated[
+        FiniteFloat,
+        Field(default=0, description="Additional seeded jitter fraction."),
+        CLIParameter(name=("--retry-jitter-fraction",), group=Groups.ENDPOINT),
+    ]
+
+    retry_phases: Annotated[
+        Literal["all", "warmup"],
+        Field(default="all", description="Phases eligible for retry."),
+        CLIParameter(name=("--retry-phases",), group=Groups.ENDPOINT),
+    ]
+
+    retry_partial_stream: Annotated[
+        Literal["retry", "stop"],
+        Field(default="stop", description="Explicit replay of partial output."),
+        CLIParameter(name=("--retry-partial-stream",), group=Groups.ENDPOINT),
+    ]
+
+    retry_jitter_seed: Annotated[
+        int,
+        Field(default=42, ge=0, description="Independent retry random seed."),
+        CLIParameter(name=("--retry-jitter-seed",), group=Groups.ENDPOINT),
+    ]
+
     retry_failed_requests: Annotated[
         bool,
         Field(
@@ -242,6 +312,17 @@ class CLIConfig(BaseConfig):
             group=Groups.ENDPOINT,
         ),
     ] = EndpointDefaults.RETRY_FAILED_REQUESTS
+
+    retry_failed_warmup_requests: Annotated[
+        bool,
+        Field(
+            description="Retry only warmup requests, with the same rules, wait and attempt cap as --retry-failed-requests. A router that refuses the warmup burst (429 or 503) then delays the warmup instead of failing it, while profiling requests stay first attempts. Has no effect when --retry-failed-requests is set.",
+        ),
+        CLIParameter(
+            name=("--retry-failed-warmup-requests",),
+            group=Groups.ENDPOINT,
+        ),
+    ] = EndpointDefaults.RETRY_FAILED_WARMUP_REQUESTS
 
     retry_wait_seconds: Annotated[
         float,
@@ -2355,6 +2436,73 @@ class CLIConfig(BaseConfig):
         CLIParameter(
             name=("--agentic-cache-warmup-duration",),
             group=Groups.WARMUP,
+        ),
+    ] = None
+
+    session_arrival_rate: Annotated[
+        float | None,
+        Field(
+            gt=0,
+            description="AGENTIC_REPLAY only: start new sessions open loop, at this mean rate in sessions per second, instead of recycling a lane when its session tree drains. The warmed --concurrency lanes are the session population at profiling start. Each arrival starts a trace at turn 0; inside a session each turn still waits for the previous reply and then the recorded, capped gap. Needs --benchmark-duration and --session-concurrency-ceiling.",
+        ),
+        CLIParameter(
+            name=("--session-arrival-rate",),
+            group=Groups.LOAD_GENERATOR,
+        ),
+    ] = None
+
+    session_arrival_pattern: Annotated[
+        Literal["poisson", "gamma"] | None,
+        Field(
+            description="AGENTIC_REPLAY only: inter-arrival distribution of --session-arrival-rate: poisson (default) or gamma with --session-arrival-cv."
+        ),
+        CLIParameter(
+            name=("--session-arrival-pattern",),
+            group=Groups.LOAD_GENERATOR,
+        ),
+    ] = None
+
+    session_arrival_cv: Annotated[
+        float | None,
+        Field(
+            gt=0,
+            description="AGENTIC_REPLAY only: coefficient of variation of session inter-arrival times for --session-arrival-pattern gamma (shape 1/CV^2). 1 is Poisson; larger values are burstier.",
+        ),
+        CLIParameter(
+            name=("--session-arrival-cv",),
+            group=Groups.LOAD_GENERATOR,
+        ),
+    ] = None
+
+    session_concurrency_ceiling: Annotated[
+        int | None,
+        Field(
+            gt=0,
+            description="AGENTIC_REPLAY only: the most sessions the client keeps open at once under --session-arrival-rate, in place of --concurrency. Set it far above the server's capacity: an arrival that finds every slot taken waits for one, and session_arrivals.json records it as held back.",
+        ),
+        CLIParameter(
+            name=("--session-concurrency-ceiling",),
+            group=Groups.LOAD_GENERATOR,
+        ),
+    ] = None
+
+    session_arrival_schedule: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="Profiling rate changes as seconds:rate comma-separated pairs.",
+        ),
+        CLIParameter(name=("--session-arrival-schedule",), group=Groups.LOAD_GENERATOR),
+    ]
+
+    agentic_concurrency_schedule: Annotated[
+        str | None,
+        Field(
+            description="AgentX profiling session targets as seconds:concurrency pairs, "
+            "for example 900:96,1200:24. Preserves initial lanes and drains removed lanes' HTTP requests."
+        ),
+        CLIParameter(
+            name=("--agentic-concurrency-schedule",), group=Groups.LOAD_GENERATOR
         ),
     ] = None
 

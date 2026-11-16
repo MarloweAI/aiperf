@@ -126,6 +126,8 @@ class CreditReturn(
     credit: Credit
     cancelled: bool = False
     first_token_sent: bool = False
+    provider_departure: bool = False
+    """This profiling response closes its entire root tree to future dispatch."""
     error: str | None = None
     request_latency_ns: int | None = None
     inter_token_latency_ns: float | None = None

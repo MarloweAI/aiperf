@@ -174,6 +174,10 @@ class CreditIssuer:
     def _phase_key(self) -> int | CreditPhase:
         return phase_runtime_key(self._phase, self._phase_index)
 
+    def set_session_limit(self, limit: int) -> None:
+        """Set this phase's open-session ceiling."""
+        self._concurrency_manager.set_session_limit(self._phase_key, limit)
+
     def can_acquire_and_start_new_session(self) -> bool:
         """Check if a session slot can be acquired and a new session can be started."""
         return (
@@ -486,6 +490,10 @@ class CreditIssuer:
             max_tokens_override=turn.max_tokens_override,
         )
 
+        if self._session_tree_registry is not None:
+            self._session_tree_registry.on_request_issued(
+                credit.effective_root_correlation_id
+            )
         await self._credit_router.send_credit(credit=credit)
         replay_gate = getattr(self, "replay_gate", None)
         if replay_gate is not None:

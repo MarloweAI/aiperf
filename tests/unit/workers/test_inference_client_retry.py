@@ -6,7 +6,9 @@ Failure modes covered: a replica lost before the first token (gateway 503),
 a replica lost mid-stream (stream ends without [DONE]), a non-retryable client
 error, a client-side exception without an HTTP status, the attempt cap, retries
 left off by default, endpoints that never send [DONE], a second first-token
-report for one request, and the phase cancelling a request during its wait.
+report for one request, the phase cancelling a request during its wait, and a
+router refusing warmup requests (429/503) while profiling requests must stay
+first attempts.
 """
 
 import asyncio
@@ -26,6 +28,44 @@ from aiperf.common.models.model_endpoint_info import (
 from aiperf.common.models.record_models import RequestInfo, RequestRecord, SSEField
 from aiperf.plugin.enums import EndpointType
 from aiperf.workers.inference_client import InferenceClient
+
+
+@pytest.mark.asyncio
+@pytest.mark.looptime
+async def test_explicit_fixed_policy_retries_without_legacy_flag(
+    no_wait, time_traveler_no_patch_sleep
+):
+    client, transport = make_client(
+        retry_policy="fixed",
+        retry_wait_seconds=5,
+        retry_max_attempts=241,
+        retry_max_elapsed_seconds=1200,
+    )
+    transport.send_request = AsyncMock(
+        side_effect=[failed(100, 500, "server"), streamed(200, done=True)]
+    )
+    earlier = []
+
+    async def emit(row):
+        earlier.append(row)
+
+    client.attempt_callback = emit
+    record = await client.send_request(request_info(client))
+    assert len(earlier) == 1
+    assert earlier[0].request_info.x_request_id != record.request_info.x_request_id
+    assert transport.send_request.await_count == 2
+    assert record.error is None
+    assert record.retry_metadata["attempt_number"] == 2
+
+
+@pytest.mark.asyncio
+async def test_profile_429_sets_root_departure_without_refusing_warmup(no_wait):
+    client, transport = make_client(retry_policy="fixed", retry_on_429="leave_provider")
+    transport.send_request = AsyncMock(return_value=failed(100, 429, "refused"))
+    record = await client.send_request(request_info(client))
+    assert record.retry_terminal_reason == "http_429_rerouted_away"
+    assert client.root_has_departed("c")
+    assert transport.send_request.await_count == 1
 
 
 def make_client(
@@ -71,13 +111,13 @@ def make_client(
     return client, transport
 
 
-def request_info(client: InferenceClient) -> RequestInfo:
+def request_info(client: InferenceClient, phase: str = "profiling") -> RequestInfo:
     return RequestInfo(
         model_endpoint=client.model_endpoint,
         turns=[Turn(texts=[Text(contents=["hi"])])],
         turn_index=0,
         credit_num=0,
-        credit_phase="profiling",
+        credit_phase=phase,
         x_request_id="sai-00000000-0000-0000-0000-000000000001",
         x_correlation_id="c",
         conversation_id="conv",
@@ -200,4 +240,30 @@ async def test_phase_cancellation_during_the_wait_ends_the_request():
         pytest.raises(asyncio.CancelledError),
     ):
         await client.send_request(request_info(client))
+    assert transport.send_request.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", [429, 503])
+async def test_warmup_refusals_are_retried_when_only_warmup_retries(no_wait, code):
+    client, transport = make_client(retry_failed_warmup_requests=True)
+    transport.send_request = AsyncMock(
+        side_effect=[failed(100, code, "refused"), streamed(200, done=True)]
+    )
+    record = await client.send_request(request_info(client, phase="warmup"))
+    assert record.error is None
+    assert record.start_perf_ns == 100
+    assert [error.code for error in record.retried_errors] == [code]
+    assert transport.send_request.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_profiling_refusals_stay_first_attempts_when_only_warmup_retries(
+    no_wait,
+):
+    client, transport = make_client(retry_failed_warmup_requests=True)
+    transport.send_request = AsyncMock(side_effect=[failed(1, 429, "refused")])
+    record = await client.send_request(request_info(client))
+    assert record.error is not None and record.error.code == 429
+    assert record.retried_errors == []
     assert transport.send_request.await_count == 1

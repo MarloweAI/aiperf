@@ -486,7 +486,15 @@ class PhaseRunner(TaskManagerMixin):
             await self._publish_phase_failure_lifecycle()
             raise e
         finally:
+            self._stop_load_schedule(strategy)
             self._detach_orchestrator_and_cleanup()
+
+    @staticmethod
+    def _stop_load_schedule(strategy: TimingStrategyProtocol) -> None:
+        """Cancel optional wall-clock controls before drain and on failure."""
+        stop = getattr(strategy, "stop_load_schedule", None)
+        if stop is not None:
+            stop()
 
     def _build_strategy(self) -> TimingStrategyProtocol:
         """Construct the timing strategy class for this phase."""
@@ -622,6 +630,7 @@ class PhaseRunner(TaskManagerMixin):
         self._execution_task = self.execute_async(strategy.execute_phase())
 
         await self._wait_for_sending_complete(strategy)
+        self._stop_load_schedule(strategy)
 
         if self._was_cancelled:
             if not self._lifecycle.is_complete:
@@ -1059,10 +1068,10 @@ class PhaseRunner(TaskManagerMixin):
         3. Wait for cancelled credits to drain (CANCEL_DRAIN_TIMEOUT)
         4. If drain times out: release stuck concurrency slots and force completion
 
-        Accelerated cache-pressure warmup hands its paused DAG branches off to
-        profiling, so once issuance stops it completes on ``in_flight == 0``
-        alone -- it must NOT wait for the orchestrator's pending branch work to
-        drain (that paused work IS the handoff payload).
+        Accelerated cache-pressure warmup hands paused DAG branches to profiling.
+        A duration-ended AgentX profile has stopped admitting branch work. In
+        either case, once issuance stops, wire drain completes the phase even
+        if the orchestrator retains pending branch state.
         """
         timed_out = False
         try:

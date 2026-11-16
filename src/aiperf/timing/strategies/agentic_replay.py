@@ -58,23 +58,34 @@ next root drawn from the shared dataset sampler
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 import uuid
 from collections import Counter, deque
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+import orjson
 from msgspec.structs import replace as _struct_replace
 
-from aiperf.common.constants import MILLIS_PER_SECOND
+from aiperf.common.constants import MILLIS_PER_SECOND, NANOS_PER_SECOND
 from aiperf.common.enums import CacheBustTarget, CreditPhase
 from aiperf.common.environment import Environment
 from aiperf.common.mixins import AIPerfLoggerMixin
 from aiperf.common.scenario.base import TrajectoryWarmupFailedError
 from aiperf.common.scenario.context_overflow import is_context_overflow_response
+from aiperf.config.phases import SessionArrivalsConfig
 from aiperf.credit.dispatch import ChildDispatchResult, TurnAdmission
+from aiperf.credit.messages import CreditReturn
 from aiperf.credit.structs import TurnToSend
 from aiperf.timing.conversation_source import SampledSession
 from aiperf.timing.replay_dependencies import ReplayResumeBoundary
+from aiperf.timing.session_arrivals import (
+    SESSION_ARRIVALS_FILE,
+    SessionArrival,
+    build_arrival_offsets,
+    session_arrival_journal,
+)
 from aiperf.timing.trajectory_source import (
     ConversationState,
     Trajectory,
@@ -92,6 +103,7 @@ if TYPE_CHECKING:
     from aiperf.credit.issuer import CreditIssuer
     from aiperf.credit.structs import Credit
     from aiperf.timing.branch_orchestrator import BranchOrchestrator
+    from aiperf.timing.concurrency import ConcurrencyManager
     from aiperf.timing.config import CreditPhaseConfig
     from aiperf.timing.conversation_source import ConversationSource
     from aiperf.timing.phase.lifecycle import PhaseLifecycle
@@ -121,6 +133,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         branch_orchestrator: BranchOrchestrator | None = None,
         session_tree_registry: SessionTreeRegistry | None = None,
         progress: PhaseProgressTracker | None = None,
+        concurrency_manager: ConcurrencyManager | None = None,
         **kwargs,
     ) -> None:
         super().__init__(logger_name="AgenticReplayTiming")
@@ -145,6 +158,16 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         self.lifecycle = lifecycle
         self.branch_orchestrator = branch_orchestrator
         self._progress = progress
+        self._concurrency_manager = concurrency_manager
+        self._load_schedule = getattr(config, "agentic_concurrency_schedule", ())
+        self._load_schedule_enabled = isinstance(self._load_schedule, tuple) and bool(
+            self._load_schedule
+        )
+        self._load_timers: list[asyncio.TimerHandle] = []
+        self._load_schedule_closed = False
+        self._active_lanes: set[int] = set(range(len(conversation_source.trajectories)))
+        self._next_lane = len(conversation_source.trajectories)
+        self._retired_roots: set[str] = set()
         # Per-tree session-slot ledger (agentic replay PROFILING only). When
         # present, a lane's session slot is held until its whole TREE drains
         # (root + every descendant), and recycle of the freed lane is driven by
@@ -257,6 +280,43 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         )
         self._system_idle_jump_count = 0
         self._system_idle_seconds_skipped = 0.0
+        # Open-loop session arrivals (PROFILING only). The schedule is fixed
+        # here, before the phase starts, so it is the same for every run with
+        # the same seed whatever the server does.
+        arrivals = getattr(profiling_phase, "session_arrivals", None)
+        self._session_arrival_config: SessionArrivalsConfig | None = (
+            arrivals
+            if config.phase == CreditPhase.PROFILING
+            and isinstance(arrivals, SessionArrivalsConfig)
+            else None
+        )
+        self._session_arrival_duration: float | None = None
+        self._session_arrivals: list[SessionArrival] = []
+        self._session_arrival_start_ns: int | None = None
+        self._session_arrival_task: asyncio.Task | None = None
+        if self._session_arrival_config is not None:
+            seed = getattr(run, "random_seed", None)
+            if self._session_arrival_config.seed is None and isinstance(seed, int):
+                self._session_arrival_config = self._session_arrival_config.model_copy(
+                    update={"seed": seed}
+                )
+            self._session_arrival_duration = float(profiling_phase.duration)
+            self._session_arrivals = [
+                SessionArrival(
+                    index=index,
+                    scheduled_offset_sec=offset,
+                    conversation_id=self.conversation_source.next_recycle_conversation_id(),
+                )
+                for index, offset in enumerate(
+                    build_arrival_offsets(
+                        self._session_arrival_config, self._session_arrival_duration
+                    )
+                )
+            ]
+        self._root_events: list[dict] = []
+        self._root_arrivals: dict[str, int | None] = {}
+        self._root_conversations: dict[str, str] = {}
+        self._root_turn_budgets: dict[str, int | None] = {}
         self._system_idle_started_at: float | None = None
         self._system_idle_watchdog: asyncio.TimerHandle | None = None
 
@@ -302,8 +362,11 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
 
     @property
     def allows_pending_branch_handoff_after_sending_complete(self) -> bool:
-        """Pressure warmup preserves paused DAG branches for profiling handoff."""
-        return self.wants_returns_after_sending_complete
+        """Pending DAG work cannot hold a duration-ended phase after wire drain."""
+        return self.wants_returns_after_sending_complete or (
+            self.config.phase == CreditPhase.PROFILING
+            and self.lifecycle.timeout_triggered
+        )
 
     def _lane_root_corr(self, snapshot: TrajectorySnapshot) -> str | None:
         """Tree-root id shared by every stream of a snapshot lane.
@@ -372,6 +435,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         already released by the registry, so the recycled root's acquire keeps
         occupancy at exactly the configured concurrency.
         """
+        self._record_root_event(root_corr, "drained")
         self.credit_issuer.replay_gate.close_root(root_corr)
         if self.branch_orchestrator is not None:
             self.branch_orchestrator.close_replay_root(root_corr)
@@ -386,6 +450,11 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                     "recycle (bookkeeping invariant violated)."
                 )
             )
+            return
+        if self._load_schedule_enabled and lane not in self._active_lanes:
+            self._sync_scheduled_session_limit()
+            return
+        if root_corr in self._retired_roots or self._session_arrival_config is not None:
             return
         self.scheduler.schedule_later(0.0, self._dispatch_recycled_on_lane(lane))
 
@@ -417,28 +486,128 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         ):
             self.credit_issuer.set_turn_admission(self._admit_cache_warmup_turn)
         if self.config.phase == CreditPhase.PROFILING:
-            for trajectory in self.conversation_source.trajectories:
-                self._seed_trajectory_replay_prefix(trajectory)
-            self.credit_issuer.replay_gate.activate()
-            if not self.conversation_source.trajectories:
-                raise RuntimeError(
-                    "AgenticReplayStrategy PROFILING setup: trajectories empty. "
-                    "WARMUP must complete with at least one trajectory before "
-                    "PROFILING can start. Check loader output and warmup failures."
-                )
-            self.info(
-                f"PROFILING setup: {len(self.conversation_source.trajectories)} "
-                "trajectory lanes; recycle draws roots from the dataset sampler"
+            self._setup_profiling()
+
+    def _setup_profiling(self) -> None:
+        """Set the existing admission and replay owners for profiling."""
+        if self._load_schedule_enabled and (
+            self._concurrency_manager is None or not self._has_tree_registry
+        ):
+            raise ValueError(
+                "AgentX concurrency schedules require session-tree accounting"
             )
-            rootless, gated = self._lane_credit_lane_counts()
-            if rootless or gated:
-                self.info(
-                    f"PROFILING: {rootless} rootless + {gated} gated-parent lanes "
-                    f"of {len(self.conversation_source.trajectories)} dispatch no "
-                    f"root credit at start and hold a lane credit instead (so they "
-                    f"still count toward concurrency); rootless lanes recycle into a "
-                    f"fresh root once their background subagents drain"
+        self.credit_issuer.set_turn_admission(self._admit_scheduled_turn)
+        if self._session_arrival_config is not None:
+            self.credit_issuer.set_session_limit(self._session_arrival_config.ceiling)
+        for trajectory in self.conversation_source.trajectories:
+            self._seed_trajectory_replay_prefix(trajectory)
+        self.credit_issuer.replay_gate.activate()
+        if not self.conversation_source.trajectories:
+            raise RuntimeError(
+                "AgenticReplayStrategy PROFILING setup: trajectories empty. "
+                "WARMUP must complete with at least one trajectory before "
+                "PROFILING can start. Check loader output and warmup failures."
+            )
+        self.info(
+            f"PROFILING setup: {len(self.conversation_source.trajectories)} "
+            "trajectory lanes; recycle draws roots from the dataset sampler"
+        )
+        rootless, gated = self._lane_credit_lane_counts()
+        if rootless or gated:
+            self.info(
+                f"PROFILING: {rootless} rootless + {gated} gated-parent lanes "
+                f"of {len(self.conversation_source.trajectories)} dispatch no "
+                f"root credit at start and hold a lane credit instead (so they "
+                f"still count toward concurrency); rootless lanes recycle into a "
+                f"fresh root once their background subagents drain"
+            )
+
+    @property
+    def _runtime_phase_key(self) -> CreditPhase | int:
+        """Match the phase identity used to acquire session slots."""
+        return (
+            self.config.phase_index
+            if self.config.phase_index is not None
+            else self.config.phase
+        )
+
+    def is_retired_root(self, root_correlation_id: str) -> bool:
+        """True when only already-dispatched HTTP work may finish for this tree."""
+        return root_correlation_id in self._retired_roots
+
+    def _admit_scheduled_turn(self, turn: TurnToSend) -> TurnAdmission:
+        """Check again after capacity waits, immediately before HTTP dispatch."""
+        return (
+            TurnAdmission.REJECT
+            if self.is_retired_root(turn.effective_root_correlation_id)
+            else TurnAdmission.ADMIT
+        )
+
+    def _sync_scheduled_session_limit(self) -> None:
+        """Reserve capacity for baseline replacements while removed HTTP work drains."""
+        if self._concurrency_manager is None or self._session_tree_registry is None:
+            return
+        draining = sum(
+            self._session_tree_registry.has_tree(root) for root in self._retired_roots
+        )
+        self._concurrency_manager.set_session_limit(
+            self._runtime_phase_key, len(self._active_lanes) + draining
+        )
+
+    async def _apply_concurrency_target(self, target: int) -> None:
+        """Add fresh roots or retire only added lanes within the same phase."""
+        if self._load_schedule_closed or not self.stop_checker.can_start_new_session():
+            return
+        current = len(self._active_lanes)
+        if target > current:
+            lanes = list(range(self._next_lane, self._next_lane + target - current))
+            self._next_lane += len(lanes)
+            self._active_lanes.update(lanes)
+            self._sync_scheduled_session_limit()
+            await asyncio.gather(
+                *(self._dispatch_recycled_on_lane(lane) for lane in lanes)
+            )
+            return
+        removed = set(sorted(self._active_lanes, reverse=True)[: current - target])
+        self._active_lanes.difference_update(removed)
+        roots = [root for root, lane in self._root_to_lane.items() if lane in removed]
+        self._retired_roots.update(roots)
+        for root in roots:
+            self.scheduler.cancel_pending_group(root)
+            self.credit_issuer.replay_gate.close_root(root)
+            self._session_tree_registry.retire_tree(root)
+            if self.branch_orchestrator is not None:
+                await self.branch_orchestrator.retire_replay_root(root)
+        self._sync_scheduled_session_limit()
+
+    def _start_load_schedule(self) -> None:
+        """Schedule wall-clock boundaries outside replay's idle-gap compression."""
+        if not self._load_schedule_enabled:
+            return
+        loop = asyncio.get_running_loop()
+        elapsed = time.perf_counter() - self.lifecycle.started_at_perf_sec
+        for step in self._load_schedule:
+            self._load_timers.append(
+                loop.call_later(
+                    max(0.0, step.at_seconds - elapsed),
+                    self._schedule_load_target,
+                    step.concurrency,
                 )
+            )
+
+    def _schedule_load_target(self, target: int) -> None:
+        """Keep boundary work under the existing phase task cancellation owner."""
+        if not self._load_schedule_closed:
+            self.scheduler.execute_async(self._apply_concurrency_target(target))
+
+    def stop_load_schedule(self) -> None:
+        """Cancel future boundaries on phase cutoff, failure or teardown."""
+        self._load_schedule_closed = True
+        if self._session_arrival_task is not None:
+            self._session_arrival_task.cancel()
+        for handle in self._load_timers:
+            handle.cancel()
+        self._load_timers.clear()
 
     def _cache_warmup_lane(self, turn_or_credit: TurnToSend | Credit) -> int:
         """Resolve a warmup turn or credit to its stable trajectory lane."""
@@ -964,6 +1133,8 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         persisted for profiling, so marking the child stopped here would
         release the parent prematurely.
         """
+        if self.branch_orchestrator is not None:
+            self.branch_orchestrator.child_timer_fired(turn.x_correlation_id)
         result = ChildDispatchResult.normalize(
             await self.credit_issuer.dispatch_child_turn(turn)
         )
@@ -976,6 +1147,10 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
 
     async def finalize_phase(self) -> None:
         """Persist the drained accelerated-warmup DAG for profiling."""
+        self.stop_load_schedule()
+        if self._session_arrival_config is not None:
+            await self._stop_session_arrivals()
+            await self._write_session_arrival_journal()
         if self._system_idle_gap_cap_seconds is not None:
             self._cancel_system_idle_watchdog()
             self.scheduler.set_drain_observer(None)
@@ -1348,6 +1523,24 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         serializing over N credit round-trips. Subsequent turns and
         recycle-pool sessions are dispatched from handle_credit_return.
         """
+        self._start_load_schedule()
+        for trajectory in self.conversation_source.trajectories:
+            root = (
+                trajectory.x_correlation_id
+                if trajectory.snapshot is None
+                else self._lane_root_corr(trajectory.snapshot)
+            )
+            if root is not None:
+                self._root_arrivals[root] = None
+                self._root_conversations[root] = trajectory.conversation_id
+                self._record_root_event(
+                    root, "started", at_ns=self.lifecycle.started_at_ns
+                )
+        if self._session_arrival_config is not None:
+            self._session_arrival_task = asyncio.create_task(
+                self._run_session_arrivals()
+            )
+            self._session_arrival_task.add_done_callback(self._on_session_arrivals_done)
         phase_t0_offset_ms = self._profiling_phase_t0_offset_ms()
         spread_s = self._profiling_spread_seconds()
         mode = "burst" if self._burst_phase_starts else "spread"
@@ -1381,6 +1574,123 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                 first_error = result
         if first_error is not None:
             raise first_error
+
+    async def _run_session_arrivals(self) -> None:
+        """Release each scheduled arrival at its time, until the phase stops
+        starting sessions.
+
+        The schedule counts from the phase start, the clock the duration stop
+        uses, so arrivals already due when the warmed lanes have dispatched
+        are released at once and their lag is recorded. Each arrival starts
+        in its own task, so one waiting for a session slot never delays the
+        arrivals after it. The loop sleeps instead of using scheduler timers,
+        which the global system-idle cap would pull forward.
+        """
+        loop = asyncio.get_running_loop()
+        since_phase_start = (
+            time.perf_counter_ns() - self.lifecycle.started_at_perf_ns
+        ) / NANOS_PER_SECOND
+        start = loop.time() - since_phase_start
+        self._session_arrival_start_ns = self.lifecycle.started_at_ns
+        first_lane = len(self.conversation_source.trajectories)
+        for arrival in self._session_arrivals:
+            delay = start + arrival.scheduled_offset_sec - loop.time()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            if not self.stop_checker.can_start_new_session():
+                return
+            arrival.fired_ns = time.time_ns()
+            self.scheduler.execute_async(
+                self._start_session_arrival(arrival, first_lane + arrival.index)
+            )
+
+    async def _start_session_arrival(self, arrival: SessionArrival, lane: int) -> None:
+        """Start one arrival's turn-0 session and record when it was issued.
+
+        The ceiling check runs here, not in the arrival loop: nothing between
+        it and the session-slot acquire inside ``issue_credit`` suspends, so it
+        sees exactly the slots earlier arrivals left, even for arrivals the
+        loop released together. An arrival refused because the phase stopped
+        starting sessions is not a ceiling wait.
+        """
+        arrival.ceiling_full = (
+            self.stop_checker.can_start_new_session()
+            and not self.credit_issuer.can_acquire_and_start_new_session()
+        )
+        session, started = await self._start_root_on_lane(lane, arrival.conversation_id)
+        arrival.issued_ns = time.time_ns()
+        arrival.started = started
+        if session is not None:
+            arrival.conversation_id = session.conversation_id
+            arrival.x_correlation_id = session.x_correlation_id
+            if started:
+                self._root_arrivals[session.x_correlation_id] = arrival.index
+                self._root_conversations[session.x_correlation_id] = (
+                    session.conversation_id
+                )
+                self._root_turn_budgets[session.x_correlation_id] = (
+                    self._tree_turn_budget(session.conversation_id)
+                )
+                self._record_root_event(session.x_correlation_id, "started")
+
+    def _on_session_arrivals_done(self, task: asyncio.Task) -> None:
+        """Report an arrival loop that failed; the journal shows what it missed."""
+        if not task.cancelled() and task.exception() is not None:
+            self.error(
+                f"PROFILING open loop: arrival loop failed: {task.exception()!r}"
+            )
+
+    async def _stop_session_arrivals(self) -> None:
+        """Stop the arrival loop before the journal is written."""
+        task = self._session_arrival_task
+        if task is None or task.done():
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    async def _write_session_arrival_journal(self) -> None:
+        """Write ``session_arrivals.json`` beside the phase's other exports."""
+        complete = (
+            self.lifecycle.is_complete
+            and not self.lifecycle.grace_period_triggered
+            and self._progress is not None
+            and self._progress.in_flight == 0
+        )
+        if complete:
+            drained = {
+                event["root_correlation_id"]
+                for event in self._root_events
+                if event["event"] in {"drained", "departed"}
+            }
+            for root in self._root_conversations.keys() - drained:
+                self._record_root_event(root, "censored", reason="phase_cutoff")
+        journal = session_arrival_journal(
+            self._session_arrival_config,
+            self._session_arrivals,
+            initial_sessions=len(self.conversation_source.trajectories),
+            start_ns=self._session_arrival_start_ns,
+            duration_sec=self._session_arrival_duration,
+            initial_assignments=[
+                t.conversation_id for t in self.conversation_source.trajectories
+            ],
+            root_events=self._root_events,
+            complete=bool(complete),
+        )
+        summary = journal["summary"]
+        self.info(
+            f"PROFILING open loop: {summary['started']} of {summary['scheduled']} "
+            f"scheduled sessions started; {summary['ceiling_waits']} waited for the "
+            f"session ceiling; start lag p99 {summary['start_lag_ms']['p99']} ms"
+        )
+        artifact_dir = self.config.artifact_dir
+        if not isinstance(artifact_dir, Path):
+            self.warning("No artifact directory: session arrival journal not written")
+            return
+        path = artifact_dir / SESSION_ARRIVALS_FILE
+        await asyncio.to_thread(
+            path.write_bytes, orjson.dumps(journal, option=orjson.OPT_INDENT_2)
+        )
 
     def _profiling_spread_seconds(self) -> float:
         """Window over which each trajectory's FIRST request fires, in seconds.
@@ -1460,6 +1770,78 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
 
         turn = self._build_turn_for_session(session, resume_index)
         await self.credit_issuer.issue_credit(turn)
+
+    def _tree_turn_budget(self, conversation_id: str) -> int | None:
+        """Count authored fresh-tree turns only when the dataset forms a tree."""
+        pending = [conversation_id]
+        seen: set[str] = set()
+        total = 0
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                return None
+            seen.add(current)
+            metadata = self.conversation_source.get_metadata(current)
+            if metadata is None:
+                return None
+            total += len(metadata.turns)
+            pending.extend(
+                child
+                for branch in metadata.branches
+                for child in branch.child_conversation_ids
+            )
+        return total
+
+    def _record_root_event(
+        self,
+        root: str,
+        event: str,
+        *,
+        at_ns: int | None = None,
+        reason: str | None = None,
+    ) -> None:
+        if self._session_arrival_config is None:
+            return
+        budget = self._root_turn_budgets.get(root)
+        issued = (
+            self._session_tree_registry.issued_turn_count(root)
+            if self._session_tree_registry is not None
+            else None
+        )
+        remaining = (
+            max(0, budget - issued)
+            if budget is not None and issued is not None
+            else None
+        )
+        self._root_events.append(
+            {
+                "root_correlation_id": root,
+                "conversation_id": self._root_conversations.get(root),
+                "arrival_index": self._root_arrivals.get(root),
+                "event": event,
+                "at_ns": at_ns if at_ns is not None else time.time_ns(),
+                "reason": reason,
+                "unissued_turns": remaining
+                if event in {"departed", "drained", "censored"}
+                else None,
+            }
+        )
+
+    async def handle_credit_result(self, result: CreditReturn) -> None:
+        """Retire the whole root before any return can spawn or recycle work."""
+        if self.config.phase != CreditPhase.PROFILING or not result.provider_departure:
+            return
+        root = result.credit.effective_root_correlation_id
+        if root in self._retired_roots:
+            return
+        self._retired_roots.add(root)
+        self._record_root_event(root, "departed", reason="http_429_rerouted_away")
+        self.scheduler.cancel_pending_group(root)
+        self.credit_issuer.replay_gate.close_root(root)
+        if self._session_tree_registry is not None:
+            self._session_tree_registry.retire_tree(root)
+        if self.branch_orchestrator is not None:
+            await self.branch_orchestrator.retire_replay_root(root)
 
     async def handle_credit_return(
         self, credit: Credit, *, error: str | None = None
@@ -1583,6 +1965,8 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             else self.credit_issuer.issue_credit(turn)
         )
         if next_meta.delay_ms is not None and next_meta.delay_ms > 0:
+            if turn.agent_depth > 0 and self.branch_orchestrator is not None:
+                self.branch_orchestrator.child_awaits_timer(turn.x_correlation_id)
             self.scheduler.schedule_later(
                 next_meta.delay_ms / MILLIS_PER_SECOND,
                 coro,
@@ -1630,26 +2014,29 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         await self._dispatch_recycled_on_lane(lane)
 
     async def _dispatch_recycled_on_lane(self, lane: int) -> None:
-        """Draw the next root from the dataset sampler and dispatch its turn-0
-        session onto ``lane``.
+        """Recycle only a continuing closed-loop lane."""
+        if self._session_arrival_config is not None:
+            return
+        if self._load_schedule_enabled and lane not in self._active_lanes:
+            return
+        await self._start_root_on_lane(lane)
 
-        Shared by ``_spawn_from_recycle_or_id`` (a finished root recycling) and
-        ``_on_rootless_child_done`` (a drained rootless lane recycling into its
-        first real root). The recycled session restarts at turn 0 with a fresh
-        x_correlation_id and a freshly minted cache-bust marker (nothing
-        warmed). No-op during cooldown -- in-flight returns must not start new
-        sessions -- or when the sampler yields no spawnable root.
-        """
+    async def _start_root_on_lane(
+        self, lane: int, conversation_id: str | None = None
+    ) -> tuple[SampledSession | None, bool]:
+        """Dispatch a predetermined root, or draw for closed-loop recycling."""
         if not self.stop_checker.can_start_new_session():
-            return
+            return None, False
 
-        next_trace_id = self.conversation_source.next_recycle_conversation_id()
+        next_trace_id = (
+            conversation_id or self.conversation_source.next_recycle_conversation_id()
+        )
         if next_trace_id is None:
-            return
+            return None, False
 
         session = self._build_session_for_trace(next_trace_id)
         if session is None or not session.metadata.turns:
-            return
+            return None, False
 
         self._correlation_to_lane[session.x_correlation_id] = lane
         self._root_to_lane[session.effective_root_correlation_id] = lane
@@ -1666,7 +2053,8 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         )
 
         turn = self._build_turn_for_session(session, 0)
-        await self.credit_issuer.issue_credit(turn)
+        started = await self.credit_issuer.issue_credit(turn)
+        return session, started
 
     async def _on_rootless_child_done(self, lane: int) -> None:
         """Account a rootless lane's background child completing.

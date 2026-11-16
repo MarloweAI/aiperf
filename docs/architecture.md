@@ -88,8 +88,24 @@ Workers are the processes that send HTTP requests to the inference server and me
 
 **Scalability:**
 - Run multiple workers (e.g., 10, 50, 100+) to support different workload patterns
-- No coordination between workers
+- Workers coordinate a modeled provider departure through the existing message
+  bus: the observing worker closes its local root retry gate before publishing
+  `SessionProviderDepartureNotification`; subscribers interrupt pending retry
+  waits without cancelling active transport. `CreditReturn.provider_departure`
+  asks the timing strategy to retire future work for the whole tree.
 - Adding more workers increases load capacity and request rates
+
+`aiperf.workers.retry_policy` owns the resolved policy, allowed retry-hint parsing,
+logical budget calculation and pure retry/stop/departure decision. Native workers
+and installed worker plugins consume that same interface. Each explicit-policy
+HTTP attempt has a distinct request ID and retry metadata linked to its logical
+turn. Transport-start evidence is separate from credit intent timestamps.
+
+For AgentX open-loop profiling, `SessionArrivalsConfig` owns the new-root process,
+and `AgenticReplayStrategy` precomputes the timestamp and corpus assignment lists.
+Its arrival task remains outside the replay scheduler so idle-gap compression
+cannot move arrivals or prevent scheduler drain. `SessionTreeRegistry` and
+`BranchOrchestrator` retain slot and descendant settlement ownership.
 
 ### Record Processor
 

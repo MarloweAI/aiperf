@@ -180,13 +180,7 @@ class CreditCallbackHandler:
         for handler in self._phase_handlers.values():
             if handler.lifecycle.is_complete:
                 continue
-            if (
-                self._branch_orchestrator is not None
-                and not handler.progress.all_credits_returned_event.is_set()
-                and handler.progress.check_all_returned_or_cancelled()
-                and not self._branch_orchestrator.has_pending_branch_work()
-            ):
-                handler.progress.all_credits_returned_event.set()
+            self._signal_all_credits_returned_if_ready(handler)
 
     def _dag_work_pending(self, credit: Credit) -> bool:
         """True iff the orchestrator has work in flight or will spawn on
@@ -392,6 +386,18 @@ class CreditCallbackHandler:
         if handler.handle_credit_result is not None:
             await handler.handle_credit_result(credit_return)
 
+        if self._session_tree_registry is not None:
+            self._session_tree_registry.on_request_returned(
+                credit.effective_root_correlation_id
+            )
+        retired = getattr(handler.strategy, "is_retired_root", None)
+        if (
+            retired is not None
+            and retired(credit.effective_root_correlation_id) is True
+        ):
+            self._finish_return_processing(handler)
+            return
+
         # 4b. DAG child completion hook.
         # When a child session's final turn returns, notify the orchestrator so
         # it can decrement join refcounts, release sticky-routing entries, and
@@ -555,10 +561,9 @@ class CreditCallbackHandler:
     ) -> None:
         """Complete a drained phase, preserving paused warmup DAG state.
 
-        Accelerated cache-pressure warmup hands the live (paused) DAG branches
-        off to profiling, so once issuance has stopped it completes on
-        ``in_flight == 0`` alone -- without waiting for the orchestrator's
-        pending branch work to drain (that work IS the handoff payload).
+        Accelerated cache-pressure warmup hands paused DAG branches to profiling.
+        A duration-ended AgentX profile also stops admitting branch work. Once
+        issuance has stopped, either phase completes when its wire requests drain.
         """
         allows_pending_branch_handoff = (
             getattr(

@@ -178,6 +178,19 @@ class MetricRecordMetadata(AIPerfBaseModel):
         default=None,
         description="The X-Correlation-ID header of the request. This is a shared ID for each user session/conversation in multi-turn.",
     )
+    http_dispatch_ns: int | None = Field(
+        default=None,
+        ge=0,
+        description="Transport request-start wall time; None when unobserved.",
+    )
+    retry_terminal_reason: str | None = Field(
+        default=None, description="Stable logical-turn stop or departure reason."
+    )
+    retry_metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Allowed resolved per-HTTP-attempt retry decision evidence.",
+    )
+
     attempt_count: int = Field(
         default=1,
         ge=1,
@@ -1147,6 +1160,14 @@ class RequestRecord(AIPerfBaseModel):
         default=None,
         description="The error details if the request failed.",
     )
+    retry_terminal_reason: str | None = Field(
+        default=None, description="Stable logical-turn stop or departure reason."
+    )
+    retry_metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Allowed resolved per-HTTP-attempt retry decision evidence.",
+    )
+
     retried_errors: list[ErrorDetails] = Field(
         default_factory=list,
         description="Errors of earlier attempts that were retried, oldest first. Empty "

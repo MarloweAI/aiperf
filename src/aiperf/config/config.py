@@ -785,6 +785,30 @@ class BenchmarkConfig(BaseConfig, BenchmarkHelpersMixin):
             )
         return self
 
+    @model_validator(mode="after")
+    def validate_session_arrivals(self) -> Self:
+        """Reject unsupported timing and phase placement before traffic."""
+        arrivals = [
+            p for p in self.phases if getattr(p, "session_arrivals", None) is not None
+        ]
+        if not arrivals:
+            return self
+        phases = self.get_profiling_phases()
+        if len(phases) != 1 or arrivals != [phases[0]]:
+            raise ValueError("session arrivals require one profiling phase")
+        from aiperf.plugin.enums import TimingMode
+        from aiperf.timing.config import _is_agentic_replay
+
+        if self.scenario is not None:
+            from aiperf.common.scenario.registry import get_scenario
+
+            valid = get_scenario(self.scenario).timing_mode == TimingMode.AGENTIC_REPLAY
+        else:
+            valid = _is_agentic_replay(phases)
+        if not valid:
+            raise ValueError("session arrivals require agentic_replay timing")
+        return self
+
 
 class AIPerfConfig(BaseConfig):
     """AIPerf YAML envelope.
