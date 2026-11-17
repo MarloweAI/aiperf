@@ -284,6 +284,10 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         # here, before the phase starts, so it is the same for every run with
         # the same seed whatever the server does.
         arrivals = getattr(profiling_phase, "session_arrivals", None)
+        self._maintained_baseline = (
+            config.phase == CreditPhase.PROFILING
+            and getattr(profiling_phase, "session_maintain_baseline", False) is True
+        )
         self._session_arrival_config: SessionArrivalsConfig | None = (
             arrivals
             if config.phase == CreditPhase.PROFILING
@@ -301,22 +305,33 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                     update={"seed": seed}
                 )
             self._session_arrival_duration = float(profiling_phase.duration)
+            offsets = build_arrival_offsets(
+                self._session_arrival_config, self._session_arrival_duration
+            )
+            assignments = (
+                self.conversation_source.precompute_arrival_conversation_ids(
+                    len(offsets)
+                )
+                if self._maintained_baseline
+                else [
+                    self.conversation_source.next_recycle_conversation_id()
+                    for _ in offsets
+                ]
+            )
             self._session_arrivals = [
                 SessionArrival(
                     index=index,
                     scheduled_offset_sec=offset,
-                    conversation_id=self.conversation_source.next_recycle_conversation_id(),
+                    conversation_id=assignments[index],
                 )
-                for index, offset in enumerate(
-                    build_arrival_offsets(
-                        self._session_arrival_config, self._session_arrival_duration
-                    )
-                )
+                for index, offset in enumerate(offsets)
             ]
         self._root_events: list[dict] = []
         self._root_arrivals: dict[str, int | None] = {}
         self._root_conversations: dict[str, str] = {}
         self._root_turn_budgets: dict[str, int | None] = {}
+        self._root_lineage: dict[str, dict] = {}
+        self._lane_predecessors: dict[int, str] = {}
         self._system_idle_started_at: float | None = None
         self._system_idle_watchdog: asyncio.TimerHandle | None = None
 
@@ -435,6 +450,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         already released by the registry, so the recycled root's acquire keeps
         occupancy at exactly the configured concurrency.
         """
+        self._record_cutoff_census()
         self._record_root_event(root_corr, "drained")
         self.credit_issuer.replay_gate.close_root(root_corr)
         if self.branch_orchestrator is not None:
@@ -454,8 +470,14 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         if self._load_schedule_enabled and lane not in self._active_lanes:
             self._sync_scheduled_session_limit()
             return
-        if root_corr in self._retired_roots or self._session_arrival_config is not None:
+        if root_corr in self._retired_roots:
             return
+        if self._session_arrival_config is not None and (
+            not self._maintained_baseline
+            or lane >= len(self.conversation_source.trajectories)
+        ):
+            return
+        self._lane_predecessors[lane] = root_corr
         self.scheduler.schedule_later(0.0, self._dispatch_recycled_on_lane(lane))
 
     async def setup_phase(self) -> None:
@@ -499,6 +521,8 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         self.credit_issuer.set_turn_admission(self._admit_scheduled_turn)
         if self._session_arrival_config is not None:
             self.credit_issuer.set_session_limit(self._session_arrival_config.ceiling)
+        if self._maintained_baseline and not self._has_tree_registry:
+            raise ValueError("maintained baseline requires session-tree accounting")
         for trajectory in self.conversation_source.trajectories:
             self._seed_trajectory_replay_prefix(trajectory)
         self.credit_issuer.replay_gate.activate()
@@ -602,6 +626,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
 
     def stop_load_schedule(self) -> None:
         """Cancel future boundaries on phase cutoff, failure or teardown."""
+        self._record_cutoff_census()
         self._load_schedule_closed = True
         if self._session_arrival_task is not None:
             self._session_arrival_task.cancel()
@@ -1148,7 +1173,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
     async def finalize_phase(self) -> None:
         """Persist the drained accelerated-warmup DAG for profiling."""
         self.stop_load_schedule()
-        if self._session_arrival_config is not None:
+        if self._session_arrival_config is not None or self._maintained_baseline:
             await self._stop_session_arrivals()
             await self._write_session_arrival_journal()
         if self._system_idle_gap_cap_seconds is not None:
@@ -1524,7 +1549,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         recycle-pool sessions are dispatched from handle_credit_return.
         """
         self._start_load_schedule()
-        for trajectory in self.conversation_source.trajectories:
+        for lane, trajectory in enumerate(self.conversation_source.trajectories):
             root = (
                 trajectory.x_correlation_id
                 if trajectory.snapshot is None
@@ -1533,6 +1558,12 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             if root is not None:
                 self._root_arrivals[root] = None
                 self._root_conversations[root] = trajectory.conversation_id
+                self._root_lineage[root] = {
+                    "cohort": "baseline",
+                    "origin": "initial",
+                    "lane": lane,
+                    "predecessor_root_id": None,
+                }
                 self._record_root_event(
                     root, "started", at_ns=self.lifecycle.started_at_ns
                 )
@@ -1631,6 +1662,12 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                 self._root_turn_budgets[session.x_correlation_id] = (
                     self._tree_turn_budget(session.conversation_id)
                 )
+                self._root_lineage[session.x_correlation_id] = {
+                    "cohort": "burst",
+                    "origin": "arrival",
+                    "lane": lane,
+                    "predecessor_root_id": None,
+                }
                 self._record_root_event(session.x_correlation_id, "started")
 
     def _on_session_arrivals_done(self, task: asyncio.Task) -> None:
@@ -1662,20 +1699,31 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                 event["root_correlation_id"]
                 for event in self._root_events
                 if event["event"] in {"drained", "departed"}
+                or (self._maintained_baseline and event["event"] == "censored")
             }
             for root in self._root_conversations.keys() - drained:
                 self._record_root_event(root, "censored", reason="phase_cutoff")
+        config = self._session_arrival_config
+        if config is None:
+            config = SessionArrivalsConfig(
+                rate=0,
+                ceiling=self.config.concurrency,
+                seed=getattr(self.conversation_source, "_random_seed", None),
+            )
         journal = session_arrival_journal(
-            self._session_arrival_config,
+            config,
             self._session_arrivals,
             initial_sessions=len(self.conversation_source.trajectories),
-            start_ns=self._session_arrival_start_ns,
-            duration_sec=self._session_arrival_duration,
+            start_ns=self._session_arrival_start_ns
+            or (self.lifecycle.started_at_ns if self._maintained_baseline else None),
+            duration_sec=self._session_arrival_duration
+            or self.config.expected_duration_sec,
             initial_assignments=[
                 t.conversation_id for t in self.conversation_source.trajectories
             ],
             root_events=self._root_events,
             complete=bool(complete),
+            maintained_baseline=self._maintained_baseline,
         )
         summary = journal["summary"]
         self.info(
@@ -1800,7 +1848,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         at_ns: int | None = None,
         reason: str | None = None,
     ) -> None:
-        if self._session_arrival_config is None:
+        if self._session_arrival_config is None and not self._maintained_baseline:
             return
         budget = self._root_turn_budgets.get(root)
         issued = (
@@ -1824,8 +1872,26 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                 "unissued_turns": remaining
                 if event in {"departed", "drained", "censored"}
                 else None,
+                **(self._root_lineage[root] if self._maintained_baseline else {}),
             }
         )
+
+    def _record_cutoff_census(self) -> None:
+        """Keep the admission cutoff distinct from eventual HTTP/tree drain."""
+        if not self._maintained_baseline or not self.lifecycle.is_sending_complete:
+            return
+        terminal = {
+            event["root_correlation_id"]
+            for event in self._root_events
+            if event["event"] in {"drained", "departed", "censored"}
+        }
+        for root in self._root_conversations.keys() - terminal:
+            self._record_root_event(
+                root,
+                "censored",
+                at_ns=self.lifecycle.sending_complete_at_ns,
+                reason="phase_cutoff",
+            )
 
     async def handle_credit_result(self, result: CreditReturn) -> None:
         """Retire the whole root before any return can spawn or recycle work."""
@@ -2015,11 +2081,28 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
 
     async def _dispatch_recycled_on_lane(self, lane: int) -> None:
         """Recycle only a continuing closed-loop lane."""
-        if self._session_arrival_config is not None:
+        if self._session_arrival_config is not None and (
+            not self._maintained_baseline
+            or lane >= len(self.conversation_source.trajectories)
+        ):
             return
         if self._load_schedule_enabled and lane not in self._active_lanes:
             return
-        await self._start_root_on_lane(lane)
+        session, started = await self._start_root_on_lane(lane)
+        if self._maintained_baseline and session is not None and started:
+            root = session.effective_root_correlation_id
+            self._root_arrivals[root] = None
+            self._root_conversations[root] = session.conversation_id
+            self._root_turn_budgets[root] = self._tree_turn_budget(
+                session.conversation_id
+            )
+            self._root_lineage[root] = {
+                "cohort": "baseline",
+                "origin": "recycle",
+                "lane": lane,
+                "predecessor_root_id": self._lane_predecessors.get(lane),
+            }
+            self._record_root_event(root, "started")
 
     async def _start_root_on_lane(
         self, lane: int, conversation_id: str | None = None

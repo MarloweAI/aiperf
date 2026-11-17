@@ -1178,7 +1178,12 @@ AGENTIC_REPLAY only: maximum time in seconds the replay may remain globally idle
 #### `--session-arrival-rate` `<float>`
 
 AGENTIC_REPLAY only: start new sessions open loop, at this mean rate in sessions per second, instead of recycling a lane when its session tree drains. The warmed --concurrency lanes are the session population at profiling start. Each arrival starts a trace at turn 0; inside a session each turn still waits for the previous reply and then the recorded, capped gap. Needs --benchmark-duration and --session-concurrency-ceiling.
-<br/>_Constraints: > 0_
+<br/>_Constraints: ≥ 0_
+
+#### `--session-maintain-baseline`
+
+AGENTIC_REPLAY only: recycle naturally drained initial tree lanes alongside independent session arrivals. Departed roots never refill. Writes a cohort lifecycle journal, including constant controls without arrivals.
+<br/>_Flag (no value required)_
 
 #### `--session-arrival-pattern` `<str>`
 
@@ -2833,7 +2838,12 @@ AGENTIC_REPLAY only: maximum time in seconds the replay may remain globally idle
 #### `--session-arrival-rate` `<float>`
 
 AGENTIC_REPLAY only: start new sessions open loop, at this mean rate in sessions per second, instead of recycling a lane when its session tree drains. The warmed --concurrency lanes are the session population at profiling start. Each arrival starts a trace at turn 0; inside a session each turn still waits for the previous reply and then the recorded, capped gap. Needs --benchmark-duration and --session-concurrency-ceiling.
-<br/>_Constraints: > 0_
+<br/>_Constraints: ≥ 0_
+
+#### `--session-maintain-baseline`
+
+AGENTIC_REPLAY only: recycle naturally drained initial tree lanes alongside independent session arrivals. Departed roots never refill. Writes a cohort lifecycle journal, including constant controls without arrivals.
+<br/>_Flag (no value required)_
 
 #### `--session-arrival-pattern` `<str>`
 

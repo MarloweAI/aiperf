@@ -789,7 +789,10 @@ class BenchmarkConfig(BaseConfig, BenchmarkHelpersMixin):
     def validate_session_arrivals(self) -> Self:
         """Reject unsupported timing and phase placement before traffic."""
         arrivals = [
-            p for p in self.phases if getattr(p, "session_arrivals", None) is not None
+            p
+            for p in self.phases
+            if getattr(p, "session_arrivals", None) is not None
+            or getattr(p, "session_maintain_baseline", False)
         ]
         if not arrivals:
             return self

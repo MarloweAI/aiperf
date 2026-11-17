@@ -16,6 +16,7 @@ aiperf's existing ``User`` class in ``user_centric_rate.py``.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import math
 import uuid
@@ -895,8 +896,18 @@ class TrajectorySource(ConversationSource):
         zero turns), bounded to one full pass over the root pool so an
         all-unspawnable pool returns ``None`` rather than spinning.
         """
+        return self._next_spawnable_conversation_id(self._dataset_sampler)
+
+    def precompute_arrival_conversation_ids(self, count: int) -> list[str | None]:
+        """Freeze burst assignments without advancing the response-driven sampler."""
+        sampler = copy.deepcopy(self._dataset_sampler)
+        return [self._next_spawnable_conversation_id(sampler) for _ in range(count)]
+
+    def _next_spawnable_conversation_id(
+        self, sampler: DatasetSamplingStrategyProtocol
+    ) -> str | None:
         for _ in range(max(1, self._pool_size)):
-            cid = self._dataset_sampler.next_conversation_id()
+            cid = sampler.next_conversation_id()
             meta = self._metadata_lookup.get(cid)
             if meta is not None and meta.turns:
                 return cid

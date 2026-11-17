@@ -521,6 +521,11 @@
     ],
     [
       "C901",
+      "src/aiperf/records/usage_only_warmup.py",
+      "_chunks_are_one_finished_token"
+    ],
+    [
+      "C901",
       "src/aiperf/search_recipes/_itl_surface_fit.py",
       "_extract_2d_points"
     ],

@@ -1356,6 +1356,12 @@
                       "default": null,
                       "description": "Open-loop new-root arrivals; drained sessions are not replaced."
                     },
+                    "sessionMaintainBaseline": {
+                      "default": false,
+                      "description": "AgentX: recycle naturally drained initial tree lanes alongside independent arrivals. Departed roots never refill; retain a cohort lifecycle journal, including without arrivals.",
+                      "title": "Sessionmaintainbaseline",
+                      "type": "boolean"
+                    },
                     "agenticConcurrencySchedule": {
                       "default": [],
                       "description": "AgentX-only wall-clock session targets within one profiling phase. Added lanes stop admitting turns when removed; existing HTTP requests drain. The initial concurrency lanes remain continuous throughout the phase.",
@@ -5271,6 +5277,12 @@
                   "default": null,
                   "description": "Open-loop new-root arrivals; drained sessions are not replaced."
                 },
+                "sessionMaintainBaseline": {
+                  "default": false,
+                  "description": "AgentX: recycle naturally drained initial tree lanes alongside independent arrivals. Departed roots never refill; retain a cohort lifecycle journal, including without arrivals.",
+                  "title": "Sessionmaintainbaseline",
+                  "type": "boolean"
+                },
                 "agenticConcurrencySchedule": {
                   "default": [],
                   "description": "AgentX-only wall-clock session targets within one profiling phase. Added lanes stop admitting turns when removed; existing HTTP requests drain. The initial concurrency lanes remain continuous throughout the phase.",
@@ -8282,6 +8294,12 @@
                   ],
                   "default": null,
                   "description": "Open-loop new-root arrivals; drained sessions are not replaced."
+                },
+                "sessionMaintainBaseline": {
+                  "default": false,
+                  "description": "AgentX: recycle naturally drained initial tree lanes alongside independent arrivals. Departed roots never refill; retain a cohort lifecycle journal, including without arrivals.",
+                  "title": "Sessionmaintainbaseline",
+                  "type": "boolean"
                 },
                 "agenticConcurrencySchedule": {
                   "default": [],
@@ -11737,6 +11755,12 @@
           ],
           "default": null,
           "description": "Open-loop new-root arrivals; drained sessions are not replaced."
+        },
+        "sessionMaintainBaseline": {
+          "default": false,
+          "description": "AgentX: recycle naturally drained initial tree lanes alongside independent arrivals. Departed roots never refill; retain a cohort lifecycle journal, including without arrivals.",
+          "title": "Sessionmaintainbaseline",
+          "type": "boolean"
         },
         "agenticConcurrencySchedule": {
           "default": [],
@@ -20259,12 +20283,12 @@
           "x-jinja2-supported": true
         },
         "rate": {
-          "description": "New sessions per second after this offset.",
+          "description": "New sessions per second after this offset; zero pauses arrivals.",
           "title": "Rate",
           "oneOf": [
             {
-              "description": "New sessions per second after this offset.",
-              "exclusiveMinimum": 0,
+              "description": "New sessions per second after this offset; zero pauses arrivals.",
+              "minimum": 0,
               "title": "Rate",
               "type": "number"
             },
@@ -20294,12 +20318,12 @@
       "description": "AGENTIC_REPLAY only: open-loop session arrivals for a profiling phase.\n\nThe warmed ``concurrency`` lanes are the session population at profiling\nstart. New sessions then start at turn 0 on a schedule drawn from this\nprocess over the phase duration, and a drained lane is not recycled.\nInside a session each turn still waits for the previous reply and then the\nrecorded, capped gap.",
       "properties": {
         "rate": {
-          "description": "Mean session arrival rate, sessions per second.",
+          "description": "Mean session arrival rate, sessions per second; zero pauses arrivals.",
           "title": "Rate",
           "oneOf": [
             {
-              "description": "Mean session arrival rate, sessions per second.",
-              "exclusiveMinimum": 0,
+              "description": "Mean session arrival rate, sessions per second; zero pauses arrivals.",
+              "minimum": 0,
               "title": "Rate",
               "type": "number"
             },

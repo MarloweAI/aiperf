@@ -133,6 +133,7 @@ def session_arrival_journal(
     initial_assignments: list[str] | None = None,
     root_events: list[dict[str, Any]] | None = None,
     complete: bool = False,
+    maintained_baseline: bool = False,
 ) -> dict[str, Any]:
     """The ``session_arrivals.json`` document for a finished profiling phase.
 
@@ -170,8 +171,8 @@ def session_arrival_journal(
         )
     started = sum(1 for arrival in arrivals if arrival.started)
     ceiling_waits = sum(1 for arrival in arrivals if arrival.ceiling_full is True)
-    return {
-        "schema_version": SESSION_ARRIVALS_SCHEMA_VERSION,
+    document = {
+        "schema_version": 3 if maintained_baseline else SESSION_ARRIVALS_SCHEMA_VERSION,
         "complete": complete,
         "config": {
             "rate_per_sec": config.rate,
@@ -223,3 +224,6 @@ def session_arrival_journal(
         },
         "arrivals": rows,
     }
+    if maintained_baseline:
+        document["maintained_baseline"] = True
+    return document

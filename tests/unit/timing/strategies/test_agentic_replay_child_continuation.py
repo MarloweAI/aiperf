@@ -25,6 +25,7 @@ def _make_strategy(
     """Build a strategy with only the attributes ``_dispatch_next_turn`` reads."""
     strategy = AgenticReplayStrategy.__new__(AgenticReplayStrategy)
     strategy.config = MagicMock(phase=phase)
+    strategy.lifecycle = MagicMock(timeout_triggered=False)
     strategy._cache_warmup_duration = None
     strategy._cache_warmup_requests_per_lane = 10 if accelerated_warmup else None
 

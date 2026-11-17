@@ -721,6 +721,31 @@ and cache markers retain the existing isolation behavior. The lifecycle is
 `complete` only after native phase completion, zero in-flight requests and no
 grace timeout. Missing snapshot remaining-work counts stay unknown.
 
+### Maintained baseline with independent bursts
+
+Opt into `--session-maintain-baseline` to recycle the warmed baseline lanes
+when their whole trees naturally drain, while independent arrivals add extra
+trees. Descendants and HTTP requests do not occupy additional root slots.
+A profiling 429 with `leave_provider` permanently retires that root's lane;
+it never refills. Duration cutoff prevents every cohort from starting new work.
+
+For a burst only between profiling seconds 900 and 1200, select an initial
+arrival rate of zero and `--session-arrival-schedule 900:0.03333333333333333,1200:0`.
+Zero-rate segments admit no new roots. Existing extra trees continue after the
+downstep. The baseline sampler cannot change the burst's precomputed timestamps
+or corpus assignments. Omit the arrival options for a constant maintained
+baseline control.
+
+Opt-in runs write journal schema 3, including controls with no arrivals. Root
+events identify `cohort` (`baseline` or `burst`), `origin` (`initial`, `recycle`
+or `arrival`), `lane` and `predecessor_root_id`. Baseline recycle starts are
+additional to initial and independent arrival starts. The existing schedule and
+assignment hashes cover only the fixed initial/arrival plan. A `censored` event
+retains the phase's admission-cutoff time; a later registry `drained` event is
+separate evidence of slot retirement. Missing drain callbacks remain unknown.
+Runs without the flag preserve their existing closed/open-loop behavior and
+schema-2 journals.
+
 ## Explicit retry policy
 
 The CLI reference owns the [retry options](../cli-options.md). Existing

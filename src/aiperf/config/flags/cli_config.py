@@ -2442,12 +2442,22 @@ class CLIConfig(BaseConfig):
     session_arrival_rate: Annotated[
         float | None,
         Field(
-            gt=0,
+            ge=0,
             description="AGENTIC_REPLAY only: start new sessions open loop, at this mean rate in sessions per second, instead of recycling a lane when its session tree drains. The warmed --concurrency lanes are the session population at profiling start. Each arrival starts a trace at turn 0; inside a session each turn still waits for the previous reply and then the recorded, capped gap. Needs --benchmark-duration and --session-concurrency-ceiling.",
         ),
         CLIParameter(
             name=("--session-arrival-rate",),
             group=Groups.LOAD_GENERATOR,
+        ),
+    ] = None
+
+    session_maintain_baseline: Annotated[
+        bool | None,
+        Field(
+            description="AGENTIC_REPLAY only: recycle naturally drained initial tree lanes alongside independent session arrivals. Departed roots never refill. Writes a cohort lifecycle journal, including constant controls without arrivals."
+        ),
+        CLIParameter(
+            name=("--session-maintain-baseline",), group=Groups.LOAD_GENERATOR
         ),
     ] = None
 

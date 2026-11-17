@@ -72,7 +72,10 @@ class SessionArrivalRateStep(BaseConfig):
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     at_seconds: float = Field(gt=0, description="Profiling offset in seconds.")
-    rate: float = Field(gt=0, description="New sessions per second after this offset.")
+    rate: float = Field(
+        ge=0,
+        description="New sessions per second after this offset; zero pauses arrivals.",
+    )
 
 
 class SessionArrivalsConfig(BaseConfig):
@@ -89,7 +92,10 @@ class SessionArrivalsConfig(BaseConfig):
 
     rate: Annotated[
         float,
-        Field(gt=0, description="Mean session arrival rate, sessions per second."),
+        Field(
+            ge=0,
+            description="Mean session arrival rate, sessions per second; zero pauses arrivals.",
+        ),
     ]
 
     pattern: Annotated[
@@ -650,6 +656,11 @@ class ConcurrencyPhase(BasePhaseConfig):
         description="Open-loop new-root arrivals; drained sessions are not replaced.",
     )
 
+    session_maintain_baseline: bool = Field(
+        default=False,
+        description="AgentX: recycle naturally drained initial tree lanes alongside independent arrivals. Departed roots never refill; retain a cohort lifecycle journal, including without arrivals.",
+    )
+
     agentic_concurrency_schedule: ConcurrencySchedule = Field(
         default=(),
         description="AgentX-only wall-clock session targets within one profiling phase. "
@@ -658,9 +669,39 @@ class ConcurrencyPhase(BasePhaseConfig):
     )
 
     @model_validator(mode="after")
+    def _validate_maintained_baseline(self) -> Self:
+        """Baseline recycling shares the profiling phase's admission boundary."""
+        if self.session_maintain_baseline:
+            if (
+                self.kind != "profiling"
+                or self.duration is None
+                or self.requests is not None
+                or self.sessions is not None
+            ):
+                raise ValueError(
+                    "maintained baseline requires a duration-only profiling phase"
+                )
+            if (
+                self.agentic_concurrency_schedule
+                or self.concurrency_ramp is not None
+                or self.adaptive_scale
+            ):
+                raise ValueError(
+                    "maintained baseline cannot combine with concurrency schedule, ramp or adaptive scale"
+                )
+        return self
+
+    @model_validator(mode="after")
     def _validate_session_arrivals(self) -> Self:
         """The arrival process owns admission, duration and ceiling together."""
         if self.session_arrivals is not None:
+            if not self.session_maintain_baseline and (
+                self.session_arrivals.rate == 0
+                or any(step.rate == 0 for step in self.session_arrivals.rate_schedule)
+            ):
+                raise ValueError(
+                    "zero arrival segments require session_maintain_baseline for cohort evidence"
+                )
             if self.agentic_concurrency_schedule:
                 raise ValueError(
                     "session arrivals and concurrency schedule are mutually exclusive"
