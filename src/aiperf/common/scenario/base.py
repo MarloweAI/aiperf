@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from aiperf.common.enums import CacheBustTarget
 from aiperf.common.models import AIPerfBaseModel
@@ -34,6 +34,17 @@ class ScenarioSpec(AIPerfBaseModel):
             "--no-streaming). Streaming is required for the per-token latency "
             "metrics (TTFT, ITL) that are core to this benchmark; without it a "
             "run would silently report no first-token signal."
+        ),
+    )
+    default_streaming: bool = Field(
+        default=False,
+        description=(
+            "Auto-enable --streaming when unset, and honor an explicit "
+            "--streaming=false as a non-streaming request mode that keeps "
+            "submission_valid=true. A non-streaming run records no TTFT or "
+            "inter-token latency; minimum_profile_metric_coverage_ratio is then "
+            "checked against successful request completions. Mutually exclusive "
+            "with require_streaming."
         ),
     )
     forbid_ignore_trace_delays: bool = Field(
@@ -144,11 +155,20 @@ class ScenarioSpec(AIPerfBaseModel):
         le=1.0,
         description=(
             "Minimum fraction of each duration-based profiling phase that must "
-            "contain TTFT or inter-token-latency observations. A run that "
+            "contain TTFT or inter-token-latency observations, or successful "
+            "request completions for a non-streaming run. A run that "
             "falls below the threshold exits non-zero and is not a valid scenario "
             "submission. None disables the post-run check."
         ),
     )
+
+    @model_validator(mode="after")
+    def _one_streaming_policy(self) -> ScenarioSpec:
+        if self.require_streaming and self.default_streaming:
+            raise ValueError(
+                "require_streaming and default_streaming are mutually exclusive"
+            )
+        return self
 
 
 class ScenarioViolation(AIPerfBaseModel):

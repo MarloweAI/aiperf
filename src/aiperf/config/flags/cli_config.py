@@ -171,10 +171,13 @@ class CLIConfig(BaseConfig):
         Field(
             description="Enable streaming responses. When enabled, the server streams tokens incrementally "
             "as they are generated. Automatically disabled if the selected endpoint type does not support streaming. "
-            "Enables measurement of time-to-first-token (TTFT) and inter-token latency (ITL) metrics.",
+            "Enables measurement of time-to-first-token (TTFT) and inter-token latency (ITL) metrics. "
+            "`--no-streaming` sends non-streaming requests even where a scenario turns streaming on "
+            "by default (`inferencex-agentx-mvp`); TTFT and ITL are then not recorded.",
         ),
         CLIParameter(
             name=("--streaming",),  # GenAI-Perf
+            negative="--no-streaming",
             group=Groups.ENDPOINT,
         ),
     ] = EndpointDefaults.STREAMING

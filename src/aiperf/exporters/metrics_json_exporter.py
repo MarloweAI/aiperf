@@ -95,8 +95,9 @@ class MetricsJsonExporter(MetricsBaseExporter):
             self._results, "metric_duration_coverage", []
         )
         if metric_duration_coverage:
+            # A signal the run did not record is absent, never null or zero.
             run_metadata["metric_duration_coverage"] = [
-                coverage.model_dump(mode="json")
+                coverage.model_dump(mode="json", exclude_none=True)
                 for coverage in metric_duration_coverage
             ]
 

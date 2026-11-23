@@ -141,7 +141,8 @@ what you must set, what you may tune, and what you shouldn't touch:
   round out the group ([`--use-server-token-count`](#tokenization-options---apply-chat-template-and---use-server-token-count)
   is explained below).
 
-**Flags the scenario hard-locks** — `--streaming`,
+**Flags the scenario hard-locks** — `--streaming` (unless you pass an explicit
+`--no-streaming`),
 `--extra-inputs ignore_eos:true`,
 `--cache-bust first_turn_prefix`, and `--system-idle-gap-cap-seconds 10`. You
 can omit all of them (AIPerf fills in exactly these values under
@@ -264,7 +265,7 @@ flag.
 |---|---|---|
 | `timing_mode` is `agentic_replay` | Use the multi-turn agentic-replay scheduler (locked in by the scenario; not a user-selectable flag) | This is the scheduling discipline AgentX MVP requires (warmup → steady-state — the [profiling phase](#profiling-phase-faithful-replay-recycle-global-idle-guard) — with sampler-driven trace recycle and per-session-tree concurrency). |
 | `extra_inputs.ignore_eos = true` | Server is told to ignore its end-of-stream token and generate the full requested length | Without this, models stop early and you measure their decision to stop, not the server. |
-| `--streaming` is on | Responses stream token-by-token (auto-enabled when unset; explicit `--no-streaming` errors) | The per-token latency metrics (TTFT, ITL) are core to this benchmark and need streaming responses. |
+| `--streaming` is on | Responses stream token-by-token (auto-enabled when unset; an explicit `--no-streaming` sends non-streaming requests and records no TTFT or ITL) | The per-token latency metrics (TTFT, ITL) are core to this benchmark and need streaming responses. |
 | Replay delays are end-to-start (always on, no flag) | Each turn's replay delay is the recorded idle gap from the previous response's *end* to the next request's *start*, not the start-to-start delta. This is unconditional for weka trace replay — there is no toggle. | Replay dispatches each turn after the previous one completes, so start-to-start deltas would double-count the previous request's server time, making every session drift later turn by turn and overstating how many sessions overlap at once. |
 | `--ignore-trace-delays` is off | Trace-derived delays are preserved | The replay retains the captured agent pacing and KV-cache reuse intervals. |
 | Per-trace idle-gap cap is optional | `--trace-idle-gap-cap-seconds` is unset by default and accepts an explicit CLI value | Setting it bounds observed runtime idle across the root and every descendant stream without rewriting dataset timestamps or bypassing spawn/join dependencies. |

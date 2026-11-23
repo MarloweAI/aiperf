@@ -316,9 +316,10 @@ Rules:
 
 Agentic replay sends its warmup requests with `max_tokens=1`. A reasoning model
 often spends that token on a marker such as `<think>`. The server's reasoning
-parser (SGLang, or a server that copies it) removes the marker, so the stream
-has no text: only a finish chunk, a usage chunk with `completion_tokens: 1` and
-`[DONE]`. By default aiperf counts this reply as a failed request
+parser (SGLang, or a server that copies it) removes the marker, so the reply
+has no text: a stream has only a finish chunk, a usage chunk with
+`completion_tokens: 1` and `[DONE]`, and a non-streamed reply is one JSON
+completion whose message is empty. By default aiperf counts this reply as a failed request
 (`InvalidInferenceResultError: No responses with actual content ...`), and the
 warmup metrics show it in `error_request_count`.
 
@@ -326,15 +327,19 @@ warmup metrics show it in `error_request_count`.
 true:
 
 - the request is in the warmup phase, its `max_tokens` is 1, and the request body
-  as sent (after endpoint extras) streams one choice and caps every token limit
-  at 1. The worker checks the body before it strips it from the record.
+  as sent (after endpoint extras) asks for one choice and caps every token limit
+  at 1. The worker checks the body before it strips it from the record, and
+  keeps whether it asked for a stream.
 - HTTP 200, no error, not cancelled
-- the stream ends in exactly one `[DONE]`, all chunks share one `id`, and no
-  chunk has an `error` other than null
-- no delta has text, and exactly one choice finishes, with `length` or `stop`
-- no usage report shows more than 1 completion token or fewer than an earlier
-  report, and the last usage reports 1 completion token, at most 1 reasoning
-  token, and `total_tokens` = `prompt_tokens` + `completion_tokens`
+- for a streamed request: the stream ends in exactly one `[DONE]`, all chunks
+  share one `id`, no chunk has an `error` other than null, no delta has text,
+  exactly one choice finishes, with `length` or `stop`, and no usage report
+  shows more than 1 completion token or fewer than an earlier report
+- for a non-streamed request: exactly one JSON completion with an `id`, no
+  `error` other than null, and exactly one choice whose message has no text and
+  which finishes with `length` or `stop`
+- the last usage reports 1 completion token, at most 1 reasoning token, and
+  `total_tokens` = `prompt_tokens` + `completion_tokens`
 
 Profiling requests are never accepted. aiperf does not invent content for the
 record: its content-based metrics (for example TTFT) have no value.

@@ -88,7 +88,7 @@ def apply_scenario(run: BenchmarkRun) -> ScenarioOutcome:
     screening = bool(getattr(run.cfg, "screening", False))
 
     _apply_timing_mode(run, spec, violations, applied)
-    _apply_require_streaming(run, spec, violations, applied)
+    _apply_streaming(run, spec, violations, applied)
     _apply_require_ignore_eos(run, spec, violations, applied)
     _apply_forbid_ignore_trace_delays(run, spec, violations, applied)
     _apply_use_think_time_only(run, spec, violations, applied)
@@ -249,19 +249,26 @@ def _apply_timing_mode(
     applied.append("timing_mode")
 
 
-def _apply_require_streaming(
+def _apply_streaming(
     run: BenchmarkRun,
     spec: ScenarioSpec,
     violations: list[ScenarioViolation],
     applied: list[str],
 ) -> None:
-    if not spec.require_streaming:
+    if not (spec.require_streaming or spec.default_streaming):
         return
     endpoint = run.cfg.endpoint
     if endpoint.streaming:
         applied.append("streaming")
         return
     explicit = getattr(endpoint, "_streaming_explicitly_set", False)
+    if explicit and spec.default_streaming:
+        _logger.info(
+            "Scenario %r: --streaming=false, so requests are not streamed and "
+            "TTFT and inter-token latency are not recorded.",
+            spec.name,
+        )
+        return
     if explicit:
         violations.append(
             ScenarioViolation(

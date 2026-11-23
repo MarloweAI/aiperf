@@ -42,17 +42,26 @@ ZERO_SWEEP_LINE_STATS = SweepLineStats(
 
 
 class SweepLineMetricSpec(NamedTuple):
-    """Specification for a sweep-line metric (tag, header, unit, scale)."""
+    """Specification for a sweep-line metric (tag, header, unit, scale).
+
+    ``needs_first_token``: the curve splits each request at its first token
+    (``generation_start_ns``), so it is unobservable in a non-streaming run.
+    """
 
     tag: str
     header: str
     unit: str
     scale: float
+    needs_first_token: bool = True
 
 
 SWEEP_LINE_METRIC_SPECS: tuple[SweepLineMetricSpec, ...] = (
     SweepLineMetricSpec(
-        "effective_concurrency", "Effective Concurrency", "requests", 1.0
+        "effective_concurrency",
+        "Effective Concurrency",
+        "requests",
+        1.0,
+        needs_first_token=False,
     ),
     SweepLineMetricSpec(
         "effective_decode_throughput",
@@ -145,18 +154,26 @@ class SweepLineCurves:
         )
 
     def compute_metrics(
-        self, window_start: float, window_end: float
+        self, window_start: float, window_end: float, *, first_token: bool = True
     ) -> dict[str, MetricResult]:
-        """Compute all sweep-line MetricResults for a time window."""
+        """Compute all sweep-line MetricResults for a time window.
+
+        ``first_token=False`` (a non-streaming run, which observes no first
+        token) leaves out every metric that needs one, including all active
+        variants, instead of reporting them as 0.
+        """
         results: dict[str, MetricResult] = {}
         for spec, (ts, values) in zip(
             SWEEP_LINE_METRIC_SPECS, self.curves(), strict=True
         ):
+            if spec.needs_first_token and not first_token:
+                continue
             stats = compute_time_weighted_stats(ts, values, window_start, window_end)
             results[spec.tag] = metric_result_from_sweep_line_stats(
                 spec.tag, spec.header, spec.unit, stats, scale=spec.scale
             )
-        self._compute_active_variants(results, window_start, window_end)
+        if first_token:
+            self._compute_active_variants(results, window_start, window_end)
         return results
 
     def _compute_active_variants(

@@ -12,6 +12,8 @@ def test_inferencex_agentx_mvp_registered():
     assert isinstance(spec, ScenarioSpec)
     assert spec.timing_mode == TimingMode.AGENTIC_REPLAY
     assert spec.require_ignore_eos is True
+    assert spec.require_streaming is False
+    assert spec.default_streaming is True
     assert spec.require_use_think_time_only is False
     assert spec.forbid_input_truncation is True
     assert spec.require_loader == (

@@ -5,18 +5,20 @@
 
 Agentic replay sends its warmup requests with ``max_tokens=1``. A reasoning
 model can spend that one token on a marker such as ``</think>``. The server's
-reasoning parser removes the marker, so the stream has no text: only a finish
-chunk, a usage chunk and ``[DONE]``. ``ParsedResponseRecord.valid`` needs text,
-so aiperf counts this complete reply as a failed request.
+reasoning parser removes the marker, so the reply has no text. A stream has
+only a finish chunk, a usage chunk and ``[DONE]``; a non-streamed reply is one
+JSON completion whose message is empty. ``ParsedResponseRecord.valid`` needs
+text, so aiperf counts this complete reply as a failed request.
 
 ``--warmup-accept-usage-only`` accepts such a reply as valid. This module holds
 the rule in two parts:
 
-- ``body_streams_one_token`` reads the request body as sent. The worker calls it
+- ``one_token_body_streams`` reads the request body as sent. The worker calls it
   before it may strip ``payload_bytes`` and keeps the result in
-  ``RecordContext.streams_one_token``.
-- ``is_usage_only_one_token_warmup`` reads the raw SSE stream, so the record
-  processor calls it before it frees ``RequestRecord.responses``.
+  ``RecordContext.one_token_body_streams``.
+- ``is_usage_only_one_token_warmup`` reads the raw reply, the SSE stream or the
+  one JSON body the request asked for, so the record processor calls it before
+  it frees ``RequestRecord.responses``.
 """
 
 from __future__ import annotations
@@ -27,7 +29,11 @@ from typing import Any
 import orjson
 
 from aiperf.common.enums import CreditPhase
-from aiperf.common.models.record_models import RequestRecord, SSEMessage
+from aiperf.common.models.record_models import (
+    RequestRecord,
+    SSEMessage,
+    TextResponse,
+)
 
 _DONE = "[DONE]"
 _FINISH_REASONS = frozenset({"length", "stop"})
@@ -40,19 +46,23 @@ def is_usage_only_one_token_warmup(record: RequestRecord) -> bool:
     All of these must be true:
 
     - The request is in the warmup phase, its ``max_tokens`` is 1, and the
-      worker found that the body as sent streams one choice capped at 1 token
-      (``RecordContext.streams_one_token``).
+      worker found that the body as sent asks for one choice capped at 1 token
+      (``RecordContext.one_token_body_streams`` is not None).
     - HTTP status 200, no error, not cancelled, valid timestamps.
-    - Every response is an SSE message. The stream ends with exactly one
-      ``[DONE]``. All other data are JSON chunks with one ``id`` and no
-      ``error`` key with a value other than null.
-    - At most one choice per chunk, with index 0. No delta has text: every
-      delta value other than ``role: "assistant"`` is empty.
-    - Exactly one ``finish_reason``, ``length`` or ``stop``. No choice follows it.
-    - No usage report shows more than 1 completion token or a smaller count than
-      an earlier report. The last usage reports ``completion_tokens`` 1,
-      ``prompt_tokens`` > 0, ``total_tokens`` = prompt + completion, and 0 or 1
-      reasoning tokens.
+    - For a body that asked for a stream: every response is an SSE message.
+      The stream ends with exactly one ``[DONE]``. All other data are JSON
+      chunks with one ``id`` and no ``error`` key with a value other than
+      null. At most one choice per chunk, with index 0. No delta has text:
+      every delta value other than ``role: "assistant"`` is empty. Exactly
+      one ``finish_reason``, ``length`` or ``stop``. No choice follows it. No
+      usage report shows more than 1 completion token or a smaller count than
+      an earlier report.
+    - For a body that asked for one JSON reply: exactly one text response, a
+      JSON completion with an ``id``, no ``error`` value other than null and
+      exactly one choice, index 0, whose ``message`` has no text in the same
+      sense and whose ``finish_reason`` is ``length`` or ``stop``.
+    - The last usage reports ``completion_tokens`` 1, ``prompt_tokens`` > 0,
+      ``total_tokens`` = prompt + completion, and 0 or 1 reasoning tokens.
 
     A profiling request is never accepted. A reply with text is never accepted
     here, because the normal check accepts it.
@@ -62,7 +72,7 @@ def is_usage_only_one_token_warmup(record: RequestRecord) -> bool:
         info is None
         or info.credit_phase != CreditPhase.WARMUP
         or info.max_tokens != 1
-        or not info.streams_one_token
+        or info.one_token_body_streams is None
         or record.status != 200
         or record.error is not None
         or record.was_cancelled
@@ -70,6 +80,8 @@ def is_usage_only_one_token_warmup(record: RequestRecord) -> bool:
         or not 0 <= record.start_perf_ns < record.end_perf_ns < sys.maxsize
     ):
         return False
+    if not info.one_token_body_streams:
+        return _is_one_finished_token_completion(record)
     data = _stream_data(record)
     if data is None or not data or data[-1] != _DONE or _DONE in data[:-1]:
         return False
@@ -80,29 +92,65 @@ def is_usage_only_one_token_warmup(record: RequestRecord) -> bool:
     return _chunks_are_one_finished_token(chunks)
 
 
-def body_streams_one_token(payload_bytes: bytes | None) -> bool:
-    """Return True when the request body as sent streams one choice capped at 1 token.
+def one_token_body_streams(payload_bytes: bytes | None) -> bool | None:
+    """Return whether a request body that asks for one token asks for a stream.
 
-    The body is the final one: endpoint extras and ``extra_body`` can replace
-    the turn's ``max_tokens``, so ``RecordContext.max_tokens`` alone is not
-    enough. Every token cap in the body must be 1.
+    None when the body as sent does not ask for exactly one choice capped at 1
+    token. Otherwise True for ``"stream": true`` and False for a body that
+    asks for one JSON reply (``"stream"`` false or absent). The body is the
+    final one: endpoint extras and ``extra_body`` can replace the turn's
+    ``max_tokens``, so ``RecordContext.max_tokens`` alone is not enough. Every
+    token cap in the body must be 1.
     """
     if payload_bytes is None:
-        return False
+        return None
     try:
         payload = orjson.loads(payload_bytes)
     except orjson.JSONDecodeError:
-        return False
+        return None
     if not isinstance(payload, dict):
-        return False
+        return None
     caps = [payload[key] for key in _WIRE_TOKEN_CAPS if key in payload]
     n = payload.get("n", 1)
+    stream = payload.get("stream", False)
+    if (
+        not caps
+        or not all(type(cap) is int and cap == 1 for cap in caps)
+        or type(stream) is not bool
+        or type(n) is not int
+        or n != 1
+    ):
+        return None
+    return stream
+
+
+def _is_one_finished_token_completion(record: RequestRecord) -> bool:
+    """Return True for one JSON completion of one finished token without text."""
+    responses = record.responses or []
+    if len(responses) != 1 or not isinstance(responses[0], TextResponse):
+        return False
+    if not record.start_perf_ns <= responses[0].perf_ns <= record.end_perf_ns:
+        return False
+    try:
+        completion = orjson.loads(responses[0].text)
+    except orjson.JSONDecodeError:
+        return False
+    if not isinstance(completion, dict) or completion.get("error") is not None:
+        return False
+    completion_id = completion.get("id")
+    choices = completion.get("choices")
+    if not isinstance(completion_id, str) or not completion_id:
+        return False
+    if not isinstance(choices, list) or len(choices) != 1:
+        return False
+    choice = choices[0]
     return (
-        bool(caps)
-        and all(type(cap) is int and cap == 1 for cap in caps)
-        and payload.get("stream") is True
-        and type(n) is int
-        and n == 1
+        isinstance(choice, dict)
+        and choice.get("index") == 0
+        and choice.get("finish_reason") in _FINISH_REASONS
+        and isinstance(choice.get("message"), dict)
+        and _delta_has_no_text(choice["message"])
+        and _usage_is_one_token(completion.get("usage"))
     )
 
 

@@ -55,7 +55,7 @@ def _make_plan(
     duration: Any = 1800,
     unsafe_override: bool = False,
 ) -> BenchmarkPlan:
-    """Build a real BenchmarkPlan whose configs[0] carries a clean weka scenario (happy path), or a downgraded hard violation when ``unsafe_override`` + explicit ``streaming=False`` are set."""
+    """Build a real BenchmarkPlan whose configs[0] carries a clean weka scenario (happy path), or a downgraded hard violation when ``unsafe_override`` + explicit ``ignore_eos=False`` are set."""
     if extra is None:
         extra = {"ignore_eos": True}
     endpoint: dict[str, Any] = {
@@ -178,12 +178,12 @@ def test_stamp_metadata_omits_num_dataset_entries_when_not_explicit() -> None:
 
 
 def test_stamp_scenario_submission_metadata_unsafe_override_marks_invalid() -> None:
-    """An unsafe-override violation (explicit ``--streaming=false`` on a require-streaming scenario) stamps submission_valid False with the ``unsafe_override`` reason."""
+    """An unsafe-override violation (explicit ``ignore_eos=false`` on an ignore_eos scenario) stamps submission_valid False with the ``unsafe_override`` reason."""
     from aiperf.cli_runner._aggregate import _stamp_scenario_submission_metadata
 
     plan = _make_plan(
         scenario="inferencex-agentx-mvp",
-        streaming=False,
+        extra={"ignore_eos": False},
         unsafe_override=True,
     )
     aggregate = _make_aggregate()
@@ -246,3 +246,17 @@ def test_stamp_scenario_submission_metadata_carries_was_cancelled(
     _stamp_scenario_submission_metadata(aggregate, results, plan)
 
     assert aggregate.metadata["_was_cancelled"] is expected
+
+
+def test_stamp_scenario_submission_metadata_non_streaming_stays_valid() -> None:
+    """An explicit ``--no-streaming`` under AgentX is a request mode, not a violation."""
+    from aiperf.cli_runner._aggregate import _stamp_scenario_submission_metadata
+
+    plan = _make_plan(scenario="inferencex-agentx-mvp", streaming=False)
+    aggregate = _make_aggregate()
+
+    _stamp_scenario_submission_metadata(aggregate, [], plan)
+
+    assert aggregate.metadata["_scenario_name"] == "inferencex-agentx-mvp"
+    assert aggregate.metadata["_validator_submission_valid"] is True
+    assert plan.configs[0].endpoint.streaming is False

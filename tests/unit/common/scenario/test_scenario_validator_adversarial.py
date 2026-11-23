@@ -250,7 +250,7 @@ def test_synthesis_max_isl_very_high_rejected_under_lock() -> None:
 
 def _multi_violation_run(*, unsafe_override: bool) -> BenchmarkRun:
     return _build_run(
-        streaming=False,  # --streaming violation
+        streaming=False,  # a request mode, not a violation
         unsafe_override=unsafe_override,
         extra={"ignore_eos": False},  # ignore_eos violation
         dataset={
@@ -263,20 +263,21 @@ def _multi_violation_run(*, unsafe_override: bool) -> BenchmarkRun:
     )
 
 
-def test_all_five_invariants_lock_raises_with_multiple_violations() -> None:
-    """Five simultaneous invariant violations (streaming, ignore_eos, loader, cache_bust, duration) raise ScenarioLockError."""
+def test_all_four_invariants_lock_raises_with_multiple_violations() -> None:
+    """Four simultaneous invariant violations (ignore_eos, loader, cache_bust, duration) raise ScenarioLockError; --streaming=false is not one."""
     run = _multi_violation_run(unsafe_override=False)
     with pytest.raises(ScenarioLockError) as exc:
         apply_scenario(run)
-    assert len(exc.value.violations) == 5
+    assert len(exc.value.violations) == 4
+    assert all(v.flag != "--streaming" for v in exc.value.violations)
 
 
-def test_all_five_invariants_unsafe_override_warns_and_invalidates() -> None:
-    """Under unsafe_override the five violations invalidate the submission instead of raising."""
+def test_all_four_invariants_unsafe_override_warns_and_invalidates() -> None:
+    """Under unsafe_override the four violations invalidate the submission instead of raising."""
     run = _multi_violation_run(unsafe_override=True)
     outcome = apply_scenario(run)
     assert outcome.submission_valid is False
-    assert len(outcome.violations) == 5
+    assert len(outcome.violations) == 4
     assert "unsafe_override" in outcome.submission_invalid_reasons
 
 

@@ -155,3 +155,38 @@ async def test_warmup_accept_usage_only_leaves_bodies_unchanged(
     assert accept.violations == plain.violations
     assert accept.submission_invalid_reasons == plain.submission_invalid_reasons
     assert entries == _golden_entries()
+
+
+@pytest.mark.asyncio
+async def test_no_streaming_sends_json_requests_without_a_violation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_tokenizer,
+    skip_service_registration,
+) -> None:
+    # Only the stream fields change; the scenario adds no violation for them.
+    plain_run, plain_credits, plain_entries = await agentx_requests(
+        tmp_path / "plain", monkeypatch
+    )
+    run, credits, entries = await agentx_requests(
+        tmp_path / "json", monkeypatch, {"streaming": False}
+    )
+
+    assert run.cfg.endpoint.streaming is False
+    plain = plain_run.resolved.scenario_outcome
+    outcome = run.resolved.scenario_outcome
+    assert outcome.violations == plain.violations
+    assert outcome.submission_invalid_reasons == plain.submission_invalid_reasons
+    assert len(credits) == len(plain_credits)
+
+    def without_stream(entry: dict) -> dict:
+        body = orjson.loads(entry["body"])
+        body.pop("stream_options", None)
+        return {**body, "stream": None}
+
+    json_bodies = [orjson.loads(e["body"]) for e in entries]
+    assert all(body["stream"] is False for body in json_bodies)
+    assert all("stream_options" not in body for body in json_bodies)
+    assert [without_stream(e) for e in entries] == [
+        without_stream(e) for e in plain_entries
+    ]
