@@ -1396,6 +1396,12 @@ def _make_sweep_metric_classes():
 class TestTimesliceSweepMetrics:
     """Tests for sweep-based effective_concurrency and effective_decode_throughput in timeslices."""
 
+    @pytest.fixture(autouse=True)
+    def _streaming(self, mock_run) -> None:
+        # These sweeps split requests at their first token, which only a
+        # streaming run observes.
+        mock_run.cfg.endpoint.streaming = True
+
     @pytest.mark.asyncio
     async def test_timeslice_has_effective_concurrency_and_throughput(
         self, mock_metric_registry: Mock, mock_run
@@ -1583,6 +1589,12 @@ class TestTimesliceSweepMetrics:
 class TestOverallSweepMetrics:
     """Tests for sweep-based effective_concurrency and effective_decode_throughput in overall results."""
 
+    @pytest.fixture(autouse=True)
+    def _streaming(self, mock_run) -> None:
+        # These sweeps split requests at their first token, which only a
+        # streaming run observes.
+        mock_run.cfg.endpoint.streaming = True
+
     @pytest.mark.asyncio
     async def test_overall_has_effective_concurrency_and_throughput(
         self, mock_metric_registry: Mock, mock_run
@@ -1763,6 +1775,85 @@ class TestOverallSweepMetrics:
 
         summary = await acc.summarize()
         assert summary.results["effective_prefill_throughput"].avg == 0.0
+
+
+class TestNonStreamingSweepMetrics:
+    """A non-streaming run observes no first token: sweep metrics split at it
+    (decode/prefill throughput and concurrency, total throughput, per-user and
+    active variants, tokens in flight) are absent, never 0. Regression: they
+    were exported as 0.0 next to a valid non-streaming AgentX submission."""
+
+    FIRST_TOKEN_TAGS = (
+        "effective_decode_throughput",
+        "effective_prefill_throughput",
+        "effective_decode_concurrency",
+        "effective_prefill_concurrency",
+        "effective_total_throughput",
+        "effective_decode_throughput_per_user",
+        "effective_prefill_throughput_per_user",
+        "tokens_in_flight",
+        "active_decode_throughput",
+        "active_prefill_throughput",
+        "active_decode_throughput_per_user",
+        "active_prefill_throughput_per_user",
+        "active_total_throughput",
+    )
+
+    async def _summary(self, mock_run, streaming: bool, ttft: bool):
+        mock_run.cfg.endpoint.streaming = streaming
+        mock_run.cfg.artifacts.slice_duration = 1.0
+        latency_cls, output_cls, ttft_cls, isl_cls = _make_sweep_metric_classes()
+        acc = create_accumulator_with_metrics(
+            mock_run, latency_cls, output_cls, ttft_cls, isl_cls
+        )
+        result = {
+            "request_latency": 800_000_000.0,
+            "output_sequence_length": 100.0,
+            "input_sequence_length": 1000.0,
+        }
+        if ttft:
+            result["time_to_first_token"] = 50_000_000.0
+        await acc.process_record(
+            create_metric_records_data(
+                session_num=0,
+                request_start_ns=int(0.1 * NANOS_PER_SECOND),
+                request_end_ns=int(0.9 * NANOS_PER_SECOND),
+                results=[result],
+            )
+        )
+        return await acc.summarize()
+
+    @pytest.mark.asyncio
+    async def test_first_token_sweeps_are_absent_without_streaming(
+        self, mock_metric_registry: Mock, mock_run
+    ) -> None:
+        summary = await self._summary(mock_run, streaming=False, ttft=False)
+        assert summary.results["effective_concurrency"].avg > 0.0
+        assert summary.timeslices is not None
+        for results in (
+            summary.results,
+            *(ts.metric_results for ts in summary.timeslices),
+        ):
+            for tag in self.FIRST_TOKEN_TAGS:
+                assert tag not in results, tag
+
+    @pytest.mark.asyncio
+    async def test_streaming_keeps_first_token_sweeps(
+        self, mock_metric_registry: Mock, mock_run
+    ) -> None:
+        summary = await self._summary(mock_run, streaming=True, ttft=True)
+        for tag in self.FIRST_TOKEN_TAGS:
+            assert tag in summary.results, tag
+        assert summary.results["effective_total_throughput"].avg > 0.0
+        assert summary.results["tokens_in_flight"].avg > 0.0
+
+    @pytest.mark.asyncio
+    async def test_streaming_without_a_first_token_still_reports_zero(
+        self, mock_metric_registry: Mock, mock_run
+    ) -> None:
+        """In a streaming run a missing first token means none arrived, a real 0."""
+        summary = await self._summary(mock_run, streaming=True, ttft=False)
+        assert summary.results["effective_decode_throughput"].avg == 0.0
 
 
 class TestListMetricBackendSwitch:

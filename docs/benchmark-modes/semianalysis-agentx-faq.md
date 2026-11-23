@@ -58,7 +58,11 @@ transparency.
 - **Scenario-locked** (a conflicting value is rejected): `--system-idle-gap-cap-seconds 10.0`,
   `--cache-bust first_turn_prefix`, and a pinned `--public-dataset`.
 - **Streaming by default:** `--streaming` auto-enables if you omit it. An explicit `--no-streaming`
-  sends non-streaming requests and keeps `submission_valid: true`; TTFT and ITL are then not recorded.
+  sends non-streaming requests and keeps `submission_valid: true`; TTFT, ITL and every metric derived
+  from the first token (decode/prefill throughput and concurrency, effective and active total
+  throughput, tokens in flight) are then absent from the exports, not zero. This is a MarloweAI fork
+  relaxation: a non-streaming run compares with a streamed run of the same fork at the same load, not
+  with upstream InferenceX submissions, which always stream.
 - **Always on, no flag:** replay delays are always end-to-start (see below); there is no toggle.
 - **Scenario defaults** (auto-filled if omitted; you may override): `--benchmark-duration 1800` (floor
   900s), `--trajectory-start-min-ratio 0.0` / `--trajectory-start-max-ratio 1.0` (sample t\* across the
@@ -1001,7 +1005,9 @@ multi-turn message-array API the recorded agents used. The scenario **streams by
 don't pass `--streaming` it auto-enables it, because streaming is what makes **TTFT** and **ITL**
 measurable. An explicit `--no-streaming` sends non-streaming requests to compare against the streamed
 run at the same load; the run stays `submission_valid: true`, records no TTFT or ITL, and its
-post-run coverage check reads successful request completions instead. (The endpoint type itself is not locked, but a non-chat endpoint won't accept the
+post-run coverage check reads successful request completions instead. Its request latency covers the
+whole reply, while a streamed request's latency ends at its last content chunk. It is not comparable
+with upstream InferenceX submissions, which always stream. (The endpoint type itself is not locked, but a non-chat endpoint won't accept the
 multi-turn message arrays this benchmark sends.) `--model` must name the model your server serves (it
 also selects the tokenizer unless you override with `--tokenizer`). `--use-server-token-count` makes
 the token-based metrics use the server's reported `usage` counts rather than local re-tokenization —

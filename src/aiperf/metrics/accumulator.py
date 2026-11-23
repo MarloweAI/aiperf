@@ -765,6 +765,12 @@ class MetricsAccumulator(BaseMetricsProcessor):
         """Export final metrics results for the requested phase/window."""
         return self._summarize_for_export_context(ctx)
 
+    @property
+    def _observes_first_token(self) -> bool:
+        """A streaming run observes each request's first token; a non-streaming
+        run does not, so sweep metrics split at the first token are absent."""
+        return bool(self.run.cfg.endpoint.streaming)
+
     def _inject_sweep_metrics(
         self,
         results: dict[MetricTagT, MetricResult],
@@ -790,7 +796,11 @@ class MetricsAccumulator(BaseMetricsProcessor):
             if window_end_ns is not None
             else float(sweeps.concurrency_ts[-1])
         )
-        results.update(sweeps.compute_metrics(window_start, window_end))
+        results.update(
+            sweeps.compute_metrics(
+                window_start, window_end, first_token=self._observes_first_token
+            )
+        )
 
     def _compute_timeslices(
         self,
@@ -877,7 +887,13 @@ class MetricsAccumulator(BaseMetricsProcessor):
             )
             if len(results) == 0:
                 continue
-            results.update(sweeps.compute_metrics(window_start, window_end))
+            results.update(
+                sweeps.compute_metrics(
+                    window_start,
+                    window_end,
+                    first_token=self._observes_first_token,
+                )
+            )
             results = self._convert_display_units(results)
             # Network-RTT-adjusted latency metrics per window, aggregated from the
             # arrays precomputed once in summarize() — this window just slices its
