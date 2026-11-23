@@ -367,6 +367,67 @@ class TestProcessResultsAccumulatorPath:
         assert result.fatal_errors == []
         assert result.results.runtime_submission_invalid_reasons == []
 
+    @staticmethod
+    def _non_streaming_manager(coverage: ProfileMetricDurationCoverage):
+        acc = _make_summary_accumulator([_STUB_METRIC_RESULT])
+        acc.profile_metric_duration_coverage.return_value = coverage
+        mgr = _make_manager_mock(accumulators={AccumulatorType.METRIC_RESULTS: acc})
+        mgr.run.cfg.scenario = "inferencex-agentx-mvp"
+        mgr.run.cfg.endpoint.streaming = False
+        phase_config = MagicMock()
+        phase_config.name = "profiling"
+        phase_config.duration = 3600.0
+        mgr.run.cfg.get_profiling_phases.return_value = [phase_config]
+        return mgr, acc
+
+    @pytest.mark.asyncio
+    async def test_agentx_non_streaming_coverage_failure_names_completions(
+        self,
+    ) -> None:
+        mgr, acc = self._non_streaming_manager(
+            ProfileMetricDurationCoverage(
+                phase_name="profiling",
+                expected_duration_seconds=3600.0,
+                required_ratio=0.98,
+                request_latency_ratio=0.5,
+            )
+        )
+
+        result = await mgr._process_results(
+            phase=CreditPhase.PROFILING, cancelled=False
+        )
+
+        assert (
+            acc.profile_metric_duration_coverage.call_args.kwargs["streaming"] is False
+        )
+        assert len(result.fatal_errors) == 1
+        message = result.fatal_errors[0].message
+        assert "successful request completions=50.0%" in message
+        assert "TTFT" not in message
+        assert result.results.runtime_submission_invalid_reasons == [
+            "insufficient_profile_metric_coverage"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_agentx_non_streaming_coverage_passes_on_late_completions(
+        self,
+    ) -> None:
+        mgr, _ = self._non_streaming_manager(
+            ProfileMetricDurationCoverage(
+                phase_name="profiling",
+                expected_duration_seconds=3600.0,
+                required_ratio=0.98,
+                request_latency_ratio=0.99,
+            )
+        )
+
+        result = await mgr._process_results(
+            phase=CreditPhase.PROFILING, cancelled=False
+        )
+
+        assert result.fatal_errors == []
+        assert result.results.runtime_submission_invalid_reasons == []
+
     @pytest.mark.asyncio
     async def test_agentx_short_unsafe_smoke_skips_metric_coverage(self) -> None:
         acc = _make_summary_accumulator([_STUB_METRIC_RESULT])

@@ -176,12 +176,64 @@ def test_absent_streaming_auto_enabled() -> None:
     assert run.cfg.endpoint.streaming is True
 
 
-def test_explicit_no_streaming_raises() -> None:
+def test_explicit_no_streaming_sends_non_streaming_requests() -> None:
+    """AgentX streams by default; an explicit --streaming=false is a request mode."""
     run = _build_run(streaming=False, extra={"ignore_eos": True})
     assert run.cfg.endpoint._streaming_explicitly_set is True
+    outcome = apply_scenario(run)
+    assert run.cfg.endpoint.streaming is False
+    assert outcome.violations == []
+    assert outcome.submission_valid is True
+    assert outcome.submission_invalid_reasons == []
+    assert "streaming" not in outcome.applied_locks
+    # Every other lock is still applied.
+    assert {"timing_mode", "ignore_eos", "min_benchmark_duration"} <= set(
+        outcome.applied_locks
+    )
+    assert run.cfg.endpoint.extra["ignore_eos"] is True
+
+
+def test_explicit_no_streaming_keeps_every_other_lock() -> None:
+    run = _build_run(streaming=False, extra={"ignore_eos": False})
     with pytest.raises(ScenarioLockError) as exc:
         apply_scenario(run)
-    assert "--streaming" in str(exc.value)
+    assert "ignore_eos" in str(exc.value)
+    assert "--streaming" not in str(exc.value)
+
+
+def test_explicit_no_streaming_keeps_the_duration_floor() -> None:
+    run = _build_run(streaming=False, extra={"ignore_eos": True}, duration=300)
+    with pytest.raises(ScenarioLockError):
+        apply_scenario(run)
+
+
+def test_a_required_streaming_lock_still_refuses_explicit_no_streaming() -> None:
+    from aiperf.common.scenario import validator
+
+    spec = validator.get_scenario("inferencex-agentx-mvp").model_copy(
+        update={"require_streaming": True, "default_streaming": False}
+    )
+    run = _build_run(streaming=False, extra={"ignore_eos": True})
+    violations: list = []
+    validator._apply_streaming(run, spec, violations, [])
+    assert [v.flag for v in violations] == ["--streaming"]
+
+
+def test_a_spec_cannot_both_require_and_default_streaming() -> None:
+    from aiperf.common.scenario.base import ScenarioSpec
+
+    body = validator_spec_fields()
+    with pytest.raises(ValueError, match="default_streaming"):
+        ScenarioSpec(**body, require_streaming=True, default_streaming=True)
+
+
+def validator_spec_fields() -> dict[str, Any]:
+    from aiperf.common.scenario.registry import get_scenario
+
+    fields = get_scenario("inferencex-agentx-mvp").model_dump()
+    fields.pop("require_streaming")
+    fields.pop("default_streaming")
+    return fields
 
 
 def test_streaming_on_no_violation() -> None:

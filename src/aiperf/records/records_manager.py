@@ -1820,14 +1820,13 @@ class RecordsManager(PullClientMixin, BaseComponentService):
                 phase_name=phase_config.name,
                 expected_duration_seconds=float(phase_config.duration),
                 required_ratio=required_ratio,
+                streaming=bool(self.run.cfg.endpoint.streaming),
             )
             coverage_results.append(coverage)
             if coverage.passed:
                 self.info(
                     "Profiling metric coverage passed for "
-                    f"{phase_config.name!r}: TTFT={coverage.ttft_ratio:.1%}, "
-                    "inter-token latency="
-                    f"{coverage.inter_token_latency_ratio:.1%} "
+                    f"{phase_config.name!r}: {coverage.describe()} "
                     f"(required={required_ratio:.1%})."
                 )
                 continue
@@ -1835,11 +1834,10 @@ class RecordsManager(PullClientMixin, BaseComponentService):
             allowed_tail_seconds = float(phase_config.duration) * (1.0 - required_ratio)
             message = (
                 f"Profiling metric coverage below the required {required_ratio:.1%} "
-                f"for phase {phase_config.name!r}: TTFT={coverage.ttft_ratio:.1%}, "
-                "inter-token latency="
-                f"{coverage.inter_token_latency_ratio:.1%} over the configured "
-                f"{float(phase_config.duration):.1f}s duration. Neither latency "
-                f"signal extended into the final {allowed_tail_seconds:.1f}s before "
+                f"for phase {phase_config.name!r}: {coverage.describe()} over the "
+                f"configured {float(phase_config.duration):.1f}s duration. "
+                f"{'Neither latency signal' if coverage.request_latency_ratio is None else 'No successful request'} "
+                f"extended into the final {allowed_tail_seconds:.1f}s before "
                 "the nominal profiling end; check inference server logs for a stalled "
                 "or unavailable server."
             )

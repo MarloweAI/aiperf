@@ -14,7 +14,12 @@ from aiperf.common.accumulator_protocols import ExportContext, SummaryContext
 from aiperf.common.constants import NANOS_PER_SECOND
 from aiperf.common.enums import AggregationKind, CreditPhase, MetricType
 from aiperf.common.exceptions import NoMetricValue
-from aiperf.common.models import MetricResult, TimesliceResult
+from aiperf.common.models import (
+    ErrorDetails,
+    MetricResult,
+    ProfileMetricDurationCoverage,
+    TimesliceResult,
+)
 from aiperf.metrics.accumulator import (
     _AGGREGATE_FUNCS,
     AccumulatorMetricsSummary,
@@ -118,10 +123,12 @@ class TestMetricsAccumulator:
             phase_name="profiling",
             expected_duration_seconds=100.0,
             required_ratio=0.98,
+            streaming=True,
         )
 
         assert coverage.ttft_ratio == pytest.approx(0.48)
         assert coverage.inter_token_latency_ratio == pytest.approx(0.49)
+        assert coverage.request_latency_ratio is None
         assert coverage.passed is False
 
     @pytest.mark.asyncio
@@ -150,6 +157,7 @@ class TestMetricsAccumulator:
             phase_name="profiling",
             expected_duration_seconds=100.0,
             required_ratio=0.98,
+            streaming=True,
         )
 
         assert coverage.ttft_ratio == pytest.approx(0.98)
@@ -179,6 +187,7 @@ class TestMetricsAccumulator:
             phase_name="profiling",
             expected_duration_seconds=100.0,
             required_ratio=0.98,
+            streaming=True,
         )
 
         assert coverage.ttft_ratio == pytest.approx(0.98)
@@ -211,11 +220,108 @@ class TestMetricsAccumulator:
             phase_name="profiling",
             expected_duration_seconds=100.0,
             required_ratio=0.98,
+            streaming=True,
         )
 
         assert coverage.ttft_ratio == pytest.approx(0.48)
         assert coverage.inter_token_latency_ratio == pytest.approx(0.99)
         assert coverage.passed is True
+
+    @staticmethod
+    def _non_streaming_coverage(
+        processor: MetricsAccumulator, required_ratio: float = 0.98
+    ):
+        return processor.profile_metric_duration_coverage(
+            ExportContext(start_ns=100 * NANOS_PER_SECOND, phase=CreditPhase.PROFILING),
+            phase_name="profiling",
+            expected_duration_seconds=100.0,
+            required_ratio=required_ratio,
+            streaming=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_coverage_reads_successful_completions(
+        self, mock_metric_registry: Mock, mock_run
+    ) -> None:
+        """Without a stream there is no TTFT or ITL: they stay absent, not zero."""
+        processor = MetricsAccumulator(mock_run)
+        await processor.process_record(
+            create_metric_records_data(
+                session_num=0,
+                request_start_ns=150 * NANOS_PER_SECOND,
+                request_end_ns=199 * NANOS_PER_SECOND,
+                results=[{"request_latency": 49 * NANOS_PER_SECOND}],
+            )
+        )
+
+        coverage = self._non_streaming_coverage(processor)
+
+        assert coverage.ttft_ratio is None
+        assert coverage.inter_token_latency_ratio is None
+        assert coverage.request_latency_ratio == pytest.approx(0.99)
+        assert coverage.passed is True
+        assert coverage.model_dump(mode="json", exclude_none=True).keys() == {
+            "phase_name",
+            "expected_duration_seconds",
+            "required_ratio",
+            "request_latency_ratio",
+        }
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_coverage_fails_when_completions_stop_early(
+        self, mock_metric_registry: Mock, mock_run
+    ) -> None:
+        """A late failed request does not prove the server was still answering."""
+        processor = MetricsAccumulator(mock_run)
+        await processor.process_record(
+            create_metric_records_data(
+                session_num=0,
+                request_start_ns=140 * NANOS_PER_SECOND,
+                request_end_ns=149 * NANOS_PER_SECOND,
+                results=[{"request_latency": 9 * NANOS_PER_SECOND}],
+            )
+        )
+        await processor.process_record(
+            create_metric_records_data(
+                session_num=1,
+                request_start_ns=150 * NANOS_PER_SECOND,
+                request_end_ns=199 * NANOS_PER_SECOND,
+                error=ErrorDetails(type="RequestTimeoutError", code=408, message="t"),
+            )
+        )
+
+        coverage = self._non_streaming_coverage(processor)
+
+        assert coverage.request_latency_ratio == pytest.approx(0.49)
+        assert coverage.passed is False
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_coverage_without_completions_is_zero_and_fails(
+        self, mock_metric_registry: Mock, mock_run
+    ) -> None:
+        processor = MetricsAccumulator(mock_run)
+
+        coverage = self._non_streaming_coverage(processor)
+
+        assert coverage.request_latency_ratio == 0.0
+        assert coverage.passed is False
+
+    def test_streaming_coverage_export_is_unchanged(self) -> None:
+        coverage = ProfileMetricDurationCoverage(
+            phase_name="profiling",
+            expected_duration_seconds=100.0,
+            required_ratio=0.98,
+            ttft_ratio=0.5,
+            inter_token_latency_ratio=0.99,
+        )
+        assert coverage.passed is True
+        assert coverage.model_dump(mode="json", exclude_none=True) == {
+            "phase_name": "profiling",
+            "expected_duration_seconds": 100.0,
+            "required_ratio": 0.98,
+            "ttft_ratio": 0.5,
+            "inter_token_latency_ratio": 0.99,
+        }
 
     @pytest.mark.asyncio
     async def test_process_record_record_metric_list_values(

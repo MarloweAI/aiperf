@@ -39,6 +39,7 @@ def _build_run(
     screening: bool = True,
     unsafe_override: bool = False,
     streaming: bool = True,
+    ignore_eos: bool = True,
     scenario: str | None = _SCENARIO,
 ) -> BenchmarkRun:
     body: dict[str, Any] = {
@@ -47,7 +48,7 @@ def _build_run(
             "urls": ["http://localhost:8000/v1/chat/completions"],
             "type": "chat",
             "streaming": streaming,
-            "extra": {"ignore_eos": True},
+            "extra": {"ignore_eos": ignore_eos},
         },
         "datasets": [
             {
@@ -114,7 +115,7 @@ def test_without_screening_valid_run_is_unchanged() -> None:
 
 
 def test_screening_keeps_other_locks_enforced() -> None:
-    run = _build_run(duration=120, streaming=False)
+    run = _build_run(duration=120, ignore_eos=False)
 
     with pytest.raises(ScenarioLockError) as exc:
         apply_scenario(run)
@@ -125,7 +126,7 @@ def test_screening_keeps_other_locks_enforced() -> None:
 
 
 def test_screening_with_unsafe_override_stamps_both_reasons() -> None:
-    run = _build_run(duration=120, streaming=False, unsafe_override=True)
+    run = _build_run(duration=120, ignore_eos=False, unsafe_override=True)
 
     outcome = apply_scenario(run)
 

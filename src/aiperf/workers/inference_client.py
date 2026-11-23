@@ -26,7 +26,7 @@ from aiperf.common.models import (
 from aiperf.common.redact import redact_headers
 from aiperf.plugin import plugins
 from aiperf.plugin.enums import PluginType, TransportType
-from aiperf.records.usage_only_warmup import body_streams_one_token
+from aiperf.records.usage_only_warmup import one_token_body_streams
 from aiperf.workers.retry_policy import (
     decide_retry,
     remaining_attempt_seconds,
@@ -597,7 +597,7 @@ class InferenceClient(AIPerfLifecycleMixin):
                 and record.request_info.credit_phase == CreditPhase.WARMUP
                 and record.request_info.max_tokens == 1
             ):
-                record.request_info.streams_one_token = body_streams_one_token(
+                record.request_info.one_token_body_streams = one_token_body_streams(
                     record.request_info.payload_bytes
                 )
 

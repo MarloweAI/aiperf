@@ -445,23 +445,49 @@ class ProfileMetricDurationCoverage(AIPerfBaseModel):
     required_ratio: float = Field(
         gt=0.0, le=1.0, description="Minimum required metric coverage ratio."
     )
-    ttft_ratio: float = Field(
+    ttft_ratio: float | None = Field(
+        default=None,
         ge=0.0,
         le=1.0,
-        description="Fraction of the phase covered by TTFT observations.",
+        description="Fraction of the phase covered by TTFT observations. None for "
+        "a non-streaming run, which records no TTFT.",
     )
-    inter_token_latency_ratio: float = Field(
+    inter_token_latency_ratio: float | None = Field(
+        default=None,
         ge=0.0,
         le=1.0,
-        description="Fraction of the phase covered by inter-token-latency observations.",
+        description="Fraction of the phase covered by inter-token-latency observations. "
+        "None for a non-streaming run, which records no inter-token latency.",
+    )
+    request_latency_ratio: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of the phase covered by successful request completions. "
+        "Set only for a non-streaming run, whose only latency signal they are.",
     )
 
     @property
     def passed(self) -> bool:
-        """Return whether any latency signal proves late profiling activity."""
-        return (
-            self.ttft_ratio >= self.required_ratio
-            or self.inter_token_latency_ratio >= self.required_ratio
+        """Return whether any recorded latency signal proves late profiling activity."""
+        return any(
+            ratio is not None and ratio >= self.required_ratio
+            for ratio in (
+                self.ttft_ratio,
+                self.inter_token_latency_ratio,
+                self.request_latency_ratio,
+            )
+        )
+
+    def describe(self) -> str:
+        """Each recorded signal's coverage, for log and error messages."""
+        names = (
+            ("TTFT", self.ttft_ratio),
+            ("inter-token latency", self.inter_token_latency_ratio),
+            ("successful request completions", self.request_latency_ratio),
+        )
+        return ", ".join(
+            f"{name}={ratio:.1%}" for name, ratio in names if ratio is not None
         )
 
 
@@ -991,12 +1017,13 @@ class RecordContext(AIPerfBaseModel):
         "time so the record processor reads it directly off the record without the full ``turns`` "
         "list on the wire.",
     )
-    streams_one_token: bool = Field(
-        default=False,
-        description="True when the request body as sent streams one choice capped at 1 token "
-        "(``aiperf.records.usage_only_warmup.body_streams_one_token``). Set by "
+    one_token_body_streams: bool | None = Field(
+        default=None,
+        description="For a request body as sent that asks for one choice capped at 1 token, "
+        "whether it asks for a stream (True) or one JSON reply (False) "
+        "(``aiperf.records.usage_only_warmup.one_token_body_streams``). Set by "
         "``inference_client`` before it may strip ``payload_bytes``, only for warmup requests "
-        "with ``max_tokens`` 1 when ``--warmup-accept-usage-only`` is on. False otherwise.",
+        "with ``max_tokens`` 1 when ``--warmup-accept-usage-only`` is on. None otherwise.",
     )
     audio_duration_seconds: float | None = Field(
         default=None,

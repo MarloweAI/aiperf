@@ -3,9 +3,11 @@
 """``--warmup-accept-usage-only``: a complete one-token warmup reply without text.
 
 The streams copy what SGLang and Rill send for GLM-5.3 when the one warmup
-token is ``<think>`` and the reasoning parser removes it. Every failure case
+token is ``<think>`` and the reasoning parser removes it; the non-streamed
+replies copy SGLang's JSON completion for the same request. Every failure case
 must stay invalid: profiling requests, gateway errors, cancelled or incomplete
-streams, and replies longer than one token.
+replies, replies of another form than the body asked for, and replies longer
+than one token.
 """
 
 from __future__ import annotations
@@ -35,8 +37,8 @@ from aiperf.endpoints.openai_chat import ChatEndpoint
 from aiperf.plugin.enums import EndpointType
 from aiperf.records.inference_result_parser import InferenceResultParser
 from aiperf.records.usage_only_warmup import (
-    body_streams_one_token,
     is_usage_only_one_token_warmup,
+    one_token_body_streams,
 )
 from aiperf.workers.inference_client import InferenceClient
 
@@ -100,7 +102,7 @@ def _record(
     *,
     phase: CreditPhase = CreditPhase.WARMUP,
     max_tokens: int = 1,
-    streams_one_token: bool = True,
+    body_streams: bool | None = True,
 ) -> RequestRecord:
     """A record as the worker sends it: body checked, then stripped (AgentX)."""
     chunks = _sglang_chunks() if chunks is None else chunks
@@ -112,7 +114,7 @@ def _record(
         max_tokens=max_tokens,
         x_request_id="sai-req",
         x_correlation_id="session",
-        streams_one_token=streams_one_token,
+        one_token_body_streams=body_streams,
     )
     return RequestRecord(
         request_info=context,
@@ -165,22 +167,26 @@ def test_other_complete_shapes_are_accepted(name) -> None:
     [
         ({"max_tokens": 1, "stream": True}, True),
         ({"max_completion_tokens": 1, "stream": True, "n": 1}, True),
-        ({"max_tokens": 2, "stream": True}, False),
-        ({"max_tokens": 1, "max_completion_tokens": 8, "stream": True}, False),
-        ({"max_tokens": True, "stream": True}, False),
-        ({"stream": True}, False),
+        ({"max_tokens": 1, "stream": False}, False),
         ({"max_tokens": 1}, False),
-        ({"max_tokens": 1, "stream": True, "n": 2}, False),
-        ([1], False),
+        ({"max_tokens": 2, "stream": True}, None),
+        ({"max_tokens": 2, "stream": False}, None),
+        ({"max_tokens": 1, "max_completion_tokens": 8, "stream": True}, None),
+        ({"max_tokens": True, "stream": True}, None),
+        ({"stream": True}, None),
+        ({"stream": False}, None),
+        ({"max_tokens": 1, "stream": True, "n": 2}, None),
+        ({"max_tokens": 1, "stream": "true"}, None),
+        ([1], None),
     ],
 )
 def test_body_check(body, expected) -> None:
-    assert body_streams_one_token(orjson.dumps(body)) is expected
+    assert one_token_body_streams(orjson.dumps(body)) is expected
 
 
 def test_body_check_needs_a_body() -> None:
-    assert not body_streams_one_token(None)
-    assert not body_streams_one_token(b"{not json")
+    assert one_token_body_streams(None) is None
+    assert one_token_body_streams(b"{not json") is None
 
 
 def _finalized(
@@ -188,6 +194,7 @@ def _finalized(
     accept: bool = True,
     phase: CreditPhase = CreditPhase.WARMUP,
     extra: list[tuple[str, object]] | None = None,
+    streaming: bool = True,
 ) -> RecordContext:
     """Format the body with the real chat endpoint, then finalize and strip it."""
     endpoint = ModelEndpointInfo(
@@ -198,7 +205,7 @@ def _finalized(
         endpoint=EndpointInfo(
             type=EndpointType.CHAT,
             base_url="http://localhost:8000",
-            streaming=True,
+            streaming=streaming,
             use_server_token_count=True,
             extra=extra or [],
         ),
@@ -231,7 +238,8 @@ def _finalized(
 
 
 def test_worker_checks_the_formatted_body_before_stripping_it() -> None:
-    assert _finalized().streams_one_token
+    assert _finalized().one_token_body_streams is True
+    assert _finalized(streaming=False).one_token_body_streams is False
 
 
 def test_the_check_survives_the_trip_to_the_record_processor() -> None:
@@ -247,16 +255,17 @@ def test_the_check_survives_the_trip_to_the_record_processor() -> None:
     )
     received = RequestRecord.model_validate_json(record.model_dump_json())
     assert received.request_info.payload_bytes is None
-    assert received.request_info.streams_one_token
+    assert received.request_info.one_token_body_streams is True
     assert is_usage_only_one_token_warmup(received)
 
 
+@pytest.mark.parametrize("streaming", [True, False], ids=["stream", "json"])
 @pytest.mark.parametrize(
     "case",
     ["flag_off", "profiling", "extra_cap", "extra_legacy_cap", "extra_n"],
 )
-def test_worker_marks_only_one_token_warmup_bodies(case) -> None:
-    kwargs: dict = {}
+def test_worker_marks_only_one_token_warmup_bodies(case, streaming) -> None:
+    kwargs: dict = {"streaming": streaming}
     if case == "flag_off":
         kwargs["accept"] = False
     if case == "profiling":
@@ -268,10 +277,10 @@ def test_worker_marks_only_one_token_warmup_bodies(case) -> None:
     if case == "extra_n":
         kwargs["extra"] = [("n", 2)]
     context = _finalized(**kwargs)
-    assert not context.streams_one_token
-    # The record processor then refuses the exemption.
-    record = _record(streams_one_token=context.streams_one_token)
-    assert not is_usage_only_one_token_warmup(record)
+    assert context.one_token_body_streams is None
+    # The record processor then refuses the exemption, for either reply form.
+    assert not is_usage_only_one_token_warmup(_record(body_streams=None))
+    assert not is_usage_only_one_token_warmup(_json_record(body_streams=None))
 
 
 @pytest.mark.parametrize(
@@ -294,7 +303,7 @@ def test_keep_alive_comments_are_ignored() -> None:
 
 def _break(failure: str) -> RequestRecord:
     chunks = _sglang_chunks()
-    streams_one_token = True
+    body_streams: bool | None = True
     max_tokens = 1
     phase = CreditPhase.WARMUP
     if failure == "missing_done":
@@ -352,7 +361,7 @@ def _break(failure: str) -> RequestRecord:
     if failure == "record_max_tokens":
         max_tokens = 2
     if failure == "body_not_one_token":
-        streams_one_token = False
+        body_streams = None
     if failure == "empty_error_object":
         chunks.insert(2, {"id": _ID, "choices": [], "error": {}})
     if failure == "usage_shrinks":
@@ -390,7 +399,7 @@ def _break(failure: str) -> RequestRecord:
             },
         )
     record = _record(
-        chunks, phase=phase, max_tokens=max_tokens, streams_one_token=streams_one_token
+        chunks, phase=phase, max_tokens=max_tokens, body_streams=body_streams
     )
     if failure == "http504":
         record.status = 504
@@ -464,7 +473,184 @@ def test_rule_requires_a_complete_successful_one_token_warmup(failure) -> None:
     assert not is_usage_only_one_token_warmup(_break(failure))
 
 
-def _parser(accept: bool) -> InferenceResultParser:
+def _sglang_completion(usage: dict | None = None) -> dict:
+    """SGLang's non-streamed reply when the reasoning parser removes the one token."""
+    return {
+        "id": _ID,
+        "object": "chat.completion",
+        "created": 1,
+        "model": "test-model",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "reasoning_content": None,
+                    "tool_calls": None,
+                },
+                "logprobs": None,
+                "finish_reason": "length",
+                "matched_stop": None,
+            }
+        ],
+        "usage": usage
+        or dict(_USAGE, reasoning_tokens=0, prompt_tokens_details={"cached_tokens": 0}),
+    }
+
+
+def _json_record(
+    completion: dict | str | None = None,
+    *,
+    phase: CreditPhase = CreditPhase.WARMUP,
+    max_tokens: int = 1,
+    body_streams: bool | None = False,
+) -> RequestRecord:
+    """A non-streamed warmup record: one text response, as the transport keeps it."""
+    completion = _sglang_completion() if completion is None else completion
+    text = (
+        completion if isinstance(completion, str) else orjson.dumps(completion).decode()
+    )
+    record = _record([], phase=phase, max_tokens=max_tokens, body_streams=body_streams)
+    record.end_perf_ns = 20
+    record.responses = [
+        TextResponse(perf_ns=20, text=text, content_type="application/json")
+    ]
+    return record
+
+
+def _json_variant(name: str) -> dict:
+    completion = _sglang_completion()
+    choice = completion["choices"][0]
+    if name == "finish_stop":
+        choice["finish_reason"] = "stop"
+    if name == "empty_content":
+        choice["message"] = {"role": "assistant", "content": ""}
+    if name == "null_error":
+        completion["error"] = None
+    if name == "one_reasoning_token":
+        completion["usage"]["reasoning_tokens"] = 1
+    return completion
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["sglang", "finish_stop", "empty_content", "null_error", "one_reasoning_token"],
+)
+def test_complete_non_streamed_one_token_reply_is_accepted(name) -> None:
+    assert is_usage_only_one_token_warmup(_json_record(_json_variant(name)))
+
+
+def _json_break(failure: str) -> RequestRecord:
+    completion: dict | str = _sglang_completion()
+    choice = completion["choices"][0]
+    kwargs: dict = {}
+    if failure == "content":
+        choice["message"]["content"] = "hello"
+    if failure == "reasoning_content":
+        choice["message"]["reasoning_content"] = "hm"
+    if failure == "tool_call":
+        choice["message"]["tool_calls"] = [{"id": "call"}]
+    if failure == "other_role":
+        choice["message"]["role"] = "tool"
+    if failure == "no_message":
+        del choice["message"]
+    if failure == "missing_finish":
+        choice["finish_reason"] = None
+    if failure == "abort_finish":
+        choice["finish_reason"] = "abort"
+    if failure == "choice_index":
+        choice["index"] = 1
+    if failure == "two_choices":
+        completion["choices"].append(dict(choice, index=1))
+    if failure == "no_choices":
+        completion["choices"] = []
+    if failure == "missing_id":
+        del completion["id"]
+    if failure == "error_object":
+        completion["error"] = {"message": "upstream connect error"}
+    if failure == "two_tokens":
+        completion["usage"].update(completion_tokens=2, total_tokens=102)
+    if failure == "no_usage":
+        del completion["usage"]
+    if failure == "total_mismatch":
+        completion["usage"]["total_tokens"] = 102
+    if failure == "two_reasoning":
+        completion["usage"]["reasoning_tokens"] = 2
+    if failure == "bad_json":
+        completion = "{not json"
+    if failure == "not_an_object":
+        completion = "[1]"
+    if failure == "profiling":
+        kwargs["phase"] = CreditPhase.PROFILING
+    if failure == "record_max_tokens":
+        kwargs["max_tokens"] = 2
+    if failure == "body_not_one_token":
+        kwargs["body_streams"] = None
+    if failure == "body_streamed":
+        kwargs["body_streams"] = True
+    record = _json_record(completion, **kwargs)
+    if failure == "http504":
+        record.status = 504
+    if failure == "error":
+        record.error = ErrorDetails(type="TimeoutError", message="request timeout")
+    if failure == "cancelled":
+        record.cancellation_perf_ns = 5
+    if failure == "missing_end":
+        record.end_perf_ns = None
+    if failure == "response_after_end":
+        record.responses[0].perf_ns = record.end_perf_ns + 1
+    if failure == "two_responses":
+        record.responses.append(record.responses[0])
+    if failure == "sse_reply":
+        record.responses = _messages(_sglang_chunks())
+    if failure == "no_responses":
+        record.responses = []
+    return record
+
+
+_JSON_FAILURES = [
+    "content",
+    "reasoning_content",
+    "tool_call",
+    "other_role",
+    "no_message",
+    "missing_finish",
+    "abort_finish",
+    "choice_index",
+    "two_choices",
+    "no_choices",
+    "missing_id",
+    "error_object",
+    "two_tokens",
+    "no_usage",
+    "total_mismatch",
+    "two_reasoning",
+    "bad_json",
+    "not_an_object",
+    "profiling",
+    "record_max_tokens",
+    "body_not_one_token",
+    "body_streamed",
+    "http504",
+    "error",
+    "cancelled",
+    "missing_end",
+    "response_after_end",
+    "two_responses",
+    "sse_reply",
+    "no_responses",
+]
+
+
+@pytest.mark.parametrize("failure", _JSON_FAILURES)
+def test_non_streamed_rule_requires_a_complete_successful_one_token_warmup(
+    failure,
+) -> None:
+    assert not is_usage_only_one_token_warmup(_json_break(failure))
+
+
+def _parser(accept: bool, streaming: bool = True) -> InferenceResultParser:
     from tests.unit.conftest import make_run_from_cli
 
     def communication_init(self, run, **kwargs):
@@ -484,7 +670,10 @@ def _parser(accept: bool) -> InferenceResultParser:
 
     flags = {"warmup_accept_usage_only": True} if accept else {}
     cli = CLIConfig(
-        model_names=["test-model"], streaming=True, use_server_token_count=True, **flags
+        model_names=["test-model"],
+        streaming=streaming,
+        use_server_token_count=True,
+        **flags,
     )
     with patch("aiperf.common.mixins.CommunicationMixin.__init__", communication_init):
         return InferenceResultParser(run=make_run_from_cli(cli))
@@ -540,3 +729,49 @@ def test_cli_flag_reaches_the_benchmark_config() -> None:
     on = make_run_from_cli(CLIConfig(model_names=["m"], warmup_accept_usage_only=True))
     assert off.cfg.warmup_accept_usage_only is False
     assert on.cfg.warmup_accept_usage_only is True
+
+
+@pytest.mark.asyncio
+async def test_non_streamed_default_keeps_the_content_check() -> None:
+    parsed = await _parser(accept=False, streaming=False).parse_request_record(
+        _json_record()
+    )
+    assert parsed.has_error
+    assert parsed.request.error.type == "InvalidInferenceResultError"
+
+
+@pytest.mark.asyncio
+async def test_flag_accepts_the_non_streamed_reply_without_inventing_content() -> None:
+    parsed = await _parser(accept=True, streaming=False).parse_request_record(
+        _json_record()
+    )
+    assert parsed.valid and not parsed.has_error
+    assert parsed.usage_only_warmup
+    assert parsed.content_responses == []
+    assert parsed.token_counts.input == 100
+    assert parsed.token_counts.output + (parsed.token_counts.reasoning or 0) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure", ["profiling", "http504", "two_tokens", "error_object"]
+)
+async def test_flag_never_exempts_non_streamed_profiling_or_failed_requests(
+    failure,
+) -> None:
+    parsed = await _parser(accept=True, streaming=False).parse_request_record(
+        _json_break(failure)
+    )
+    assert not parsed.valid
+    assert not parsed.usage_only_warmup
+
+
+@pytest.mark.asyncio
+async def test_flag_does_not_change_a_non_streamed_reply_with_text() -> None:
+    completion = _sglang_completion()
+    completion["choices"][0]["message"]["content"] = "Hi"
+    parsed = await _parser(accept=True, streaming=False).parse_request_record(
+        _json_record(completion)
+    )
+    assert parsed.valid and not parsed.usage_only_warmup
+    assert len(parsed.content_responses) == 1

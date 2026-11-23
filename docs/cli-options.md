@@ -351,10 +351,9 @@ The API endpoint type to benchmark. Determines request/response format and suppo
 <br/>_Choices: [`chat`, `cohere_rankings`, `completions`, `responses`, `messages`, `chat_embeddings`, `embeddings`, `hf_tei_rankings`, `huggingface_generate`, `image_generation`, `image_edit`, `video_generation`, `image_retrieval`, `nim_embeddings`, `nim_rankings`, `solido_rag`, `raw`, `template`]_
 <br/>_Default: `chat`_
 
-#### `--streaming`
+#### `--streaming`, `--no-streaming`
 
-Enable streaming responses. When enabled, the server streams tokens incrementally as they are generated. Automatically disabled if the selected endpoint type does not support streaming. Enables measurement of time-to-first-token (TTFT) and inter-token latency (ITL) metrics.
-<br/>_Flag (no value required)_
+Enable streaming responses. When enabled, the server streams tokens incrementally as they are generated. Automatically disabled if the selected endpoint type does not support streaming. Enables measurement of time-to-first-token (TTFT) and inter-token latency (ITL) metrics. `--no-streaming` sends non-streaming requests even where a scenario turns streaming on by default (`inferencex-agentx-mvp`); TTFT and ITL are then not recorded.
 
 #### `-u`, `--url` `<list>`
 
@@ -2011,10 +2010,9 @@ The API endpoint type to benchmark. Determines request/response format and suppo
 <br/>_Choices: [`chat`, `cohere_rankings`, `completions`, `responses`, `messages`, `chat_embeddings`, `embeddings`, `hf_tei_rankings`, `huggingface_generate`, `image_generation`, `image_edit`, `video_generation`, `image_retrieval`, `nim_embeddings`, `nim_rankings`, `solido_rag`, `raw`, `template`]_
 <br/>_Default: `chat`_
 
-#### `--streaming`
+#### `--streaming`, `--no-streaming`
 
-Enable streaming responses. When enabled, the server streams tokens incrementally as they are generated. Automatically disabled if the selected endpoint type does not support streaming. Enables measurement of time-to-first-token (TTFT) and inter-token latency (ITL) metrics.
-<br/>_Flag (no value required)_
+Enable streaming responses. When enabled, the server streams tokens incrementally as they are generated. Automatically disabled if the selected endpoint type does not support streaming. Enables measurement of time-to-first-token (TTFT) and inter-token latency (ITL) metrics. `--no-streaming` sends non-streaming requests even where a scenario turns streaming on by default (`inferencex-agentx-mvp`); TTFT and ITL are then not recorded.
 
 #### `-u`, `--url` `<list>`
 

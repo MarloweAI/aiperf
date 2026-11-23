@@ -55,9 +55,10 @@ against its Weka allowlist but never fills one in) — you could drop every scen
 flag and get the same behavior (the scenario auto-fills them); they are written out here for
 transparency.
 
-- **Scenario-locked** (a conflicting value is rejected): `--streaming`,
-  `--system-idle-gap-cap-seconds 10.0`, `--cache-bust first_turn_prefix`, and a pinned `--public-dataset`.
-  `--streaming` auto-enables if you omit it.
+- **Scenario-locked** (a conflicting value is rejected): `--system-idle-gap-cap-seconds 10.0`,
+  `--cache-bust first_turn_prefix`, and a pinned `--public-dataset`.
+- **Streaming by default:** `--streaming` auto-enables if you omit it. An explicit `--no-streaming`
+  sends non-streaming requests and keeps `submission_valid: true`; TTFT and ITL are then not recorded.
 - **Always on, no flag:** replay delays are always end-to-start (see below); there is no toggle.
 - **Scenario defaults** (auto-filled if omitted; you may override): `--benchmark-duration 1800` (floor
   900s), `--trajectory-start-min-ratio 0.0` / `--trajectory-start-max-ratio 1.0` (sample t\* across the
@@ -742,8 +743,9 @@ from every reported number). Full definitions live in
 [the metrics reference](../metrics-reference.md); the ones a serving engineer watches here are:
 
 - **Time to First Token (TTFT)** and **Inter Token Latency (ITL)** — the streaming latency KPIs. These
-  require streaming responses; the scenario **locks streaming on** (it auto-enables `--streaming` when
-  you don't pass it and rejects an explicit `--no-streaming`), so these metrics are always available.
+  require streaming responses; the scenario **streams by default** (it auto-enables `--streaming` when
+  you don't pass it). An explicit `--no-streaming` run records neither metric: they are absent from its
+  exports, not zero.
 - **Request latency** (end-to-end per request) and **request throughput** (requests/sec).
 - **Input / output / total token throughput** (tokens/sec) and per-request **ISL/OSL**.
 - **Theoretical Prefix Cache Hit** (a percentage) — the *ideal* hit rate a perfect, infinite prefix
@@ -813,7 +815,7 @@ the context-overflow bound is evaluated during the run.
 | Agentic-replay timing | Recorded timing replayed; no request-rate knob | Forcing as-fast-as-possible or a request-rate/schedule mode | Refuses to start (or `submission_valid: false` via `--unsafe-override`) |
 | SemiAnalysis corpus | A pinned `*_weka_*` `--public-dataset` alias, or `weka_hf` pinned to `semianalysisai/cc-traces-weka-062126` | A non-pinned dataset, local `weka_trace`, or another `--hf-weka-dataset` under the scenario; omitting a dataset entirely (CLI synthetic default) | Explicit wrong / unpinned loader: refuses to start (or `submission_valid: false` via `--unsafe-override`). Missing/synthetic: always refuses — `--unsafe-override` cannot bypass |
 | `ignore_eos` | Injected `ignore_eos=true` | Explicit `ignore_eos=false` | Refuses to start (or `submission_valid: false` via `--unsafe-override`) |
-| Streaming | `--streaming` auto-enabled | Explicit `--no-streaming` | Refuses to start (or `submission_valid: false` via `--unsafe-override`) |
+| Streaming | `--streaming` auto-enabled; an explicit `--no-streaming` is a non-streaming request mode, not a violation | (none) | (none) |
 | Honored trace delays | Recorded think-time gaps are preserved; `--trace-idle-gap-cap-seconds` may bound observed whole-tree runtime idle without rewriting them | `--ignore-trace-delays` or `--inter-turn-delay-cap-seconds` | Refuses to start (or `submission_valid: false` via `--unsafe-override`) |
 | No input truncation | Prompts built to the full recorded token counts | Truncating/capping input below the recorded length | Refuses to start (or `submission_valid: false` via `--unsafe-override`) |
 | Minimum duration | `--benchmark-duration` ≥ 900s (default 1800s) | A duration below 900s | Refuses to start (or `submission_valid: false` via `--unsafe-override`) |
@@ -995,10 +997,11 @@ server-bound. To dig deeper, `--show-trace-timing` adds a k6-style client/server
 
 ### Q: Which endpoint does it hit, and why streaming?
 It is designed for the OpenAI-style **chat completions** endpoint — pass `--endpoint-type chat`, the
-multi-turn message-array API the recorded agents used. The scenario **requires streaming** and enforces
-it: if you don't pass `--streaming` it auto-enables it, and an explicit `--no-streaming` is a config
-conflict (a violation) — because streaming is what makes **TTFT** and **ITL** measurable, and those are
-core metrics here. (The endpoint type itself is not locked, but a non-chat endpoint won't accept the
+multi-turn message-array API the recorded agents used. The scenario **streams by default**: if you
+don't pass `--streaming` it auto-enables it, because streaming is what makes **TTFT** and **ITL**
+measurable. An explicit `--no-streaming` sends non-streaming requests to compare against the streamed
+run at the same load; the run stays `submission_valid: true`, records no TTFT or ITL, and its
+post-run coverage check reads successful request completions instead. (The endpoint type itself is not locked, but a non-chat endpoint won't accept the
 multi-turn message arrays this benchmark sends.) `--model` must name the model your server serves (it
 also selects the tokenizer unless you override with `--tokenizer`). `--use-server-token-count` makes
 the token-based metrics use the server's reported `usage` counts rather than local re-tokenization —

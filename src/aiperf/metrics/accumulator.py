@@ -357,13 +357,16 @@ class MetricsAccumulator(BaseMetricsProcessor):
         phase_name: str,
         expected_duration_seconds: float,
         required_ratio: float,
+        streaming: bool,
     ) -> ProfileMetricDurationCoverage:
         """Measure how far required latency signals extend into a profile phase.
 
         TTFT is observed when the first token arrives. ITL is observed only on a
         successful response carrying at least one inter-token interval, so its
-        last observation is the response end timestamp. The phase mask excludes
-        warmup even when warmup and profiling records share the same accumulator.
+        last observation is the response end timestamp. A non-streaming run
+        records neither; its signal is the end of each successful request, and
+        its TTFT and ITL ratios stay None. The phase mask excludes warmup even
+        when warmup and profiling records share the same accumulator.
         """
         if ctx.start_ns is None:
             raise ValueError("profiling phase start time is unavailable")
@@ -384,8 +387,16 @@ class MetricsAccumulator(BaseMetricsProcessor):
             return min(max(elapsed_ns / duration_ns, 0.0), 1.0)
 
         n = self._column_store.count
-        generation_start_ns = self._column_store.generation_start_ns[:n]
         end_ns = self._column_store.end_ns[:n]
+        if not streaming:
+            succeeded = self._column_store.metadata_bool("has_error")[:n] == 0
+            return ProfileMetricDurationCoverage(
+                phase_name=phase_name,
+                expected_duration_seconds=expected_duration_seconds,
+                required_ratio=required_ratio,
+                request_latency_ratio=_coverage_ratio(end_ns, mask & succeeded),
+            )
+        generation_start_ns = self._column_store.generation_start_ns[:n]
         has_itl = self._column_store.metadata_bool("has_inter_token_latency") == 1
 
         return ProfileMetricDurationCoverage(
